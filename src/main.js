@@ -7,6 +7,8 @@ const path = require('path');
 let mainWindow;
 let storageMonitor = null;
 let storageNotifyTimer = null;
+let storageMonitorRetries = 0;
+let storageMonitorStopped = false;
 
 app.setName('SysDashboard');
 
@@ -53,6 +55,7 @@ function readX11WorkArea() {
   try {
     const out = execSync('xprop -root _NET_WORKAREA 2>/dev/null', {
       encoding: 'utf8',
+      timeout: 2000,
       env: { ...process.env, DISPLAY: process.env.DISPLAY || ':0' },
     });
     const nums = out.match(/-?\d+/g)?.map(Number) || [];
@@ -129,6 +132,7 @@ function createWindow() {
     mainWindow.show();
     mainWindow.focus();
   });
+  mainWindow.on('closed', () => { mainWindow = null; });
   log('Dashboard gestartet');
 }
 
@@ -183,12 +187,14 @@ function notifyStorageChanged() {
 
 function startStorageMonitor() {
   if (storageMonitor) return;
+  storageMonitorStopped = false;
 
   storageMonitor = spawn('udevadm', ['monitor', '--udev', '--subsystem-match=block'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   storageMonitor.stdout.on('data', (buf) => {
+    storageMonitorRetries = 0;   // erfolgreicher Read → Fehlerzähler zurücksetzen
     const out = buf.toString();
     if (/(add|remove|change)\s+/.test(out)) notifyStorageChanged();
   });
@@ -206,12 +212,18 @@ function startStorageMonitor() {
   storageMonitor.on('exit', (code) => {
     storageMonitor = null;
     log(`Storage-Monitor beendet (exit ${code})`);
+    if (!storageMonitorStopped && storageMonitorRetries < 3) {
+      storageMonitorRetries++;
+      log(`Storage-Monitor Neustart in 2s (Versuch ${storageMonitorRetries})`);
+      setTimeout(startStorageMonitor, 2000);
+    }
   });
 
   log('Storage-Monitor gestartet');
 }
 
 function stopStorageMonitor() {
+  storageMonitorStopped = true;
   clearTimeout(storageNotifyTimer);
   storageNotifyTimer = null;
   if (storageMonitor) {
@@ -219,18 +231,6 @@ function stopStorageMonitor() {
     storageMonitor = null;
   }
 }
-
-// ── IPC: CPU ───────────────────────────────────────────────────
-ipcMain.handle('get-cpu', async () => {
-  return new Promise((resolve) => {
-    const s = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
-    setTimeout(() => {
-      const e = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
-      const usages = s.map((x,i) => Math.round(100*(1-(e[i].idle-x.idle)/(e[i].total-x.total))));
-      resolve({ avg: Math.round(usages.reduce((a,b)=>a+b,0)/usages.length), cores: usages });
-    }, 500);
-  });
-});
 
 // ── IPC: RAM ───────────────────────────────────────────────────
 function readRam() {
@@ -240,7 +240,6 @@ function readRam() {
     free:  Math.round(free/1024/1024),  percent: Math.round(used/total*100),
   };
 }
-ipcMain.handle('get-ram', () => readRam());
 
 // ── IPC: consolidated System-Stats (ein Aufruf pro Tick) ──────
 // Löst nach ~500ms auf (CPU-Delta-Sampling wie get-cpu).
@@ -322,19 +321,21 @@ ipcMain.handle('get-services', async () => new Promise((resolve) => {
 ipcMain.handle('get-net', async () => {
   return new Promise((resolve) => {
     const read = () => {
-      const lines = fs.readFileSync('/proc/net/dev','utf8').split('\n').slice(2);
-      let rx=0,tx=0;
-      // Virtuelle Interfaces (Container/VPN/Bridges) ausklammern — sonst
-      // werden Durchsatzzahlen durch docker/veth/tun-Traffic verfälscht.
-      const SKIP = /^(lo|docker|veth|br-|virbr|tun|tap|wg|vnet|vmnet|kube|cni|flannel|cali)/;
-      for (const l of lines) {
-        const p=l.trim().split(/\s+/);
-        if (p.length<10) continue;
-        const name=p[0].replace(':','');
-        if (!name||SKIP.test(name)) continue;
-        rx+=parseInt(p[1])||0; tx+=parseInt(p[9])||0;
-      }
-      return {rx,tx};
+      try {
+        const lines = fs.readFileSync('/proc/net/dev','utf8').split('\n').slice(2);
+        let rx=0,tx=0;
+        // Virtuelle Interfaces (Container/VPN/Bridges) ausklammern — sonst
+        // werden Durchsatzzahlen durch docker/veth/tun-Traffic verfälscht.
+        const SKIP = /^(lo|docker|veth|br-|virbr|tun|tap|wg|vnet|vmnet|kube|cni|flannel|cali)/;
+        for (const l of lines) {
+          const p=l.trim().split(/\s+/);
+          if (p.length<10) continue;
+          const name=p[0].replace(':','');
+          if (!name||SKIP.test(name)) continue;
+          rx+=parseInt(p[1])||0; tx+=parseInt(p[9])||0;
+        }
+        return {rx,tx};
+      } catch (e) { log('get-net: ' + e.message); return {rx:0,tx:0}; }
     };
     const s=read();
     setTimeout(()=>{ const e=read(); resolve({rx:Math.round((e.rx-s.rx)/1024),tx:Math.round((e.tx-s.tx)/1024)}); },1000);
@@ -396,7 +397,10 @@ ipcMain.handle('get-rss', async (_,url) => new Promise((resolve) => {
 
 // ── IPC: Notes ─────────────────────────────────────────────────
 const NOTES = path.join(os.homedir(), '.dashboard-notes.txt');
-ipcMain.handle('save-notes', (_,txt) => { fs.writeFileSync(NOTES, txt, 'utf8'); return true; });
+ipcMain.handle('save-notes', (_,txt) => {
+  try { fs.writeFileSync(NOTES, txt, 'utf8'); return true; }
+  catch (e) { log('save-notes fehlgeschlagen: ' + e.message); return false; }
+});
 ipcMain.handle('load-notes', () => { try { return fs.readFileSync(NOTES,'utf8'); } catch { return ''; } });
 
 // ── IPC: Battery (sysfs) ───────────────────────────────────────
@@ -459,6 +463,8 @@ let termGeom     = null;   // { x, y, w, h } — Bildschirmkoordinaten des termi
 let termGen      = 0;
 let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
 let termSpawnTs         = 0;   // Zeitpunkt des letzten spawn()
+let applyPropsInFlight  = false;   // volle xprop-Kette läuft gerade
+let geomDebounceTimer   = null;    // Debounce für Geometrie-Updates
 
 function toScreenGeom(geom) {
   const bounds = mainWindow && !mainWindow.isDestroyed()
@@ -509,6 +515,13 @@ function killExternalTerminal() {
 }
 
 function applyWindowProps(wid, x, y, w, h) {
+  // Volle Kette (unmap → xprops → move/size → map) — nur einmal beim ersten Erscheinen.
+  // In-Flight-Guard: verhindert, dass zwei Ketten sich verschränken (spätes unmap
+  // nach map → xterm unsichtbar).
+  if (applyPropsInFlight) return;
+  applyPropsInFlight = true;
+  // Sicherheitsnetz, falls ein exec-Fehler den map-Callback nie erreicht
+  setTimeout(() => { applyPropsInFlight = false; }, 3000);
   // Fenster sofort verstecken → konfigurieren → an richtiger Position einblenden
   // So sieht der Nutzer nie einen dekorierten oder falsch positionierten Flash
   exec(`xdotool windowunmap ${wid}`, () => {
@@ -521,10 +534,17 @@ function applyWindowProps(wid, x, y, w, h) {
     // Position + Größe setzen, dann erst einblenden
     exec(`xdotool windowmove ${wid} ${x} ${y} windowsize ${wid} ${w} ${h}`, () => {
       exec(`xdotool windowmap ${wid}`, () => {
+        applyPropsInFlight = false;
         log(`xterm konfiguriert: WID ${wid} @ (${x},${y}) ${w}×${h}`);
       });
     });
   });
+}
+
+// Billiger Pfad: nur Position/Größe, ohne unmap/xprop/map — für laufende Resizes
+function moveTerminalWindow(wid, x, y, w, h) {
+  exec(`xdotool windowmove ${wid} ${x} ${y} windowsize ${wid} ${w} ${h}`,
+    (e) => { if (e) log('moveTerminalWindow: ' + e.message); });
 }
 
 function spawnTerminal() {
@@ -587,7 +607,8 @@ function spawnTerminal() {
     if (wid) {
       termWid = wid;
       termRestartAttempts = 0;   // Fenster kam hoch → Fehlerzähler zurücksetzen
-      applyWindowProps(wid, x, y, w, h);
+      const g = termGeom || { x, y, w, h };
+      applyWindowProps(wid, g.x, g.y, g.w, g.h);
     } else {
       log('xterm WID nicht gefunden (--sync' + (err ? ', ' + err.message : '') + ')');
     }
@@ -602,7 +623,10 @@ ipcMain.on('terminal-spawn', (event, geom) => {
 
 ipcMain.on('terminal-geometry', (event, geom) => {
   termGeom = toScreenGeom(geom);
-  if (termWid) applyWindowProps(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
+  clearTimeout(geomDebounceTimer);
+  geomDebounceTimer = setTimeout(() => {
+    if (termWid) moveTerminalWindow(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
+  }, 150);
 });
 
 ipcMain.on('terminal-restart', () => {

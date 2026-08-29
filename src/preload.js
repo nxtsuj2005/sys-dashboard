@@ -8,8 +8,6 @@ contextBridge.exposeInMainWorld('api', {
   getSystemStats: ()  => ipcRenderer.invoke('get-system-stats'),
   getHostname: ()     => ipcRenderer.invoke('get-hostname'),
   getServices: ()     => ipcRenderer.invoke('get-services'),
-  getCpu:     ()      => ipcRenderer.invoke('get-cpu'),
-  getRam:     ()      => ipcRenderer.invoke('get-ram'),
   getNet:     ()      => ipcRenderer.invoke('get-net'),
   getLsblk:   ()      => ipcRenderer.invoke('get-lsblk'),
   getWeather: (city)  => ipcRenderer.invoke('get-weather', city),
