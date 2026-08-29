@@ -77,7 +77,7 @@
   }
   #kpi    { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap); min-height: 0; }
   #main   { display: grid; grid-template-columns: 1fr 1fr clamp(260px, 24vw, 320px); gap: var(--gap); min-height: 0; overflow: hidden; }
-  #bottom { display: grid; grid-template-columns: 1.3fr 1fr 1.1fr; gap: var(--gap); min-height: 0; overflow: hidden; }
+  #bottom { display: grid; grid-template-columns: 1.35fr 1fr 1fr 0.72fr; gap: var(--gap); min-height: 0; overflow: hidden; }
   #kpi > *, #main > *, #bottom > * { min-width: 0; }
   #main-mid, #main-right { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
 
@@ -327,8 +327,21 @@
   .netb-canvas-wrap { flex: 1; min-height: 28px; overflow: hidden; }
   #netb-canvas { width: 100%; height: 100%; display: block; }
 
+  /* ── Top-Prozesse (bottom) ── */
+  .tp-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+  .tp-row { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+  .tp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font: 400 10.5px/1 var(--mono); }
+  .tp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .tp-cpu  { color: var(--accent); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .tp-cpu .tp-mem { color: var(--muted); margin-left: 6px; font-size: 9px; }
+  .tp-track { height: 3px; border-radius: 0; background: var(--panel); overflow: hidden; }
+  .tp-track > i { display: block; height: 100%; transform-origin: left center; transform: scaleX(0);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--bg)), var(--accent));
+    transition: transform .45s cubic-bezier(.25,.8,.35,1); }
+  .tp-empty { font: 400 10px/1.4 var(--mono); color: var(--muted); }
+
   /* ── Notes ── */
-  #notes-input { width: 100%; height: 100%; background: transparent; border: none; color: var(--text); font: 400 12px/1.6 var(--mono); resize: none; outline: none; user-select: text; }
+  #notes-input { width: 100%; height: 100%; background: transparent; border: none; color: var(--text); font: 400 11px/1.55 var(--mono); resize: none; outline: none; user-select: text; }
   #notes-input::placeholder { color: var(--muted); }
 
   /* ── Scrollbars ── */
@@ -565,9 +578,17 @@
       </div>
     </div>
 
+    <!-- Top-Prozesse -->
+    <div class="card" id="topproc-card">
+      <div class="card-title">Top-Prozesse <span class="ct-legend" style="margin-left:auto"><i class="lg-cpu"></i>CPU</span></div>
+      <div class="card-body">
+        <div class="tp-list" id="tp-list"><div class="tp-empty">Lade…</div></div>
+      </div>
+    </div>
+
     <!-- Notes -->
     <div class="card" id="notes-card">
-      <div class="card-title">Schnellnotiz</div>
+      <div class="card-title">Notiz</div>
       <div class="card-body"><textarea id="notes-input" placeholder="Tippe einfach los…" spellcheck="false"></textarea></div>
     </div>
 
@@ -892,14 +913,20 @@
         coreEls.push({ v, fill, cur: 0, target: 0, drawn: -1, cls: 'bar-fill' });
       }
     }
-    // Nur das Ziel setzen — lerpCores() zieht cur pro Frame smooth hinterher
+    // Ziel gedämpft nachführen — lerpCores() zieht cur pro Frame smooth hinterher
     // (transform: scaleX, nie width → kein Relayout auf der GPU-losen Kiste).
+    // Deadband gegen das Sample-Rauschen: kleine Zappler (<3%) bewegen den Balken
+    // gar nicht, echte Änderungen gedämpft, große Sprünge schnell.
     for (let i = 0; i < n; i++) {
-      const p = Math.max(0, Math.min(100, Math.round(cores[i] || 0)));
+      const raw = Math.max(0, Math.min(100, cores[i] || 0)) / 100;
       const el = coreEls[i];
-      el.target = p / 100;
-      setText(el.v, p + '%');
-      const cls = 'bar-fill' + (p > 80 ? ' danger' : p > 60 ? ' warn' : '');
+      const diff = raw - el.target, mag = Math.abs(diff);
+      if (el.drawn < 0)         el.target = raw;              // erster Sample: direkt
+      else if (mag >= 0.25)     el.target += diff * 0.7;      // großer Sprung
+      else if (mag >= 0.03)     el.target += diff * 0.4;      // echte Änderung
+      const pct = Math.round(el.target * 100);
+      setText(el.v, pct + '%');
+      const cls = 'bar-fill' + (pct > 80 ? ' danger' : pct > 60 ? ' warn' : '');
       if (el.cls !== cls) { el.fill.className = cls; el.cls = cls; }
     }
   }
@@ -909,7 +936,7 @@
     for (let i = 0; i < coreEls.length; i++) {
       const el = coreEls[i];
       const d = el.target - el.cur;
-      el.cur = (snap || Math.abs(d) < 0.002) ? el.target : el.cur + d * 0.18;
+      el.cur = (snap || Math.abs(d) < 0.0035) ? el.target : el.cur + d * 0.13;
       const q = Math.round(el.cur * 1000) / 1000;
       if (q !== el.drawn) { el.fill.style.transform = 'scaleX(' + q + ')'; el.drawn = q; }
     }
@@ -1240,6 +1267,55 @@
     }
   }
 
+  // ── Top-Prozesse (CPU jetzt) ─────────────────────────────
+  const tpRows = [];
+  function buildTpRows() {
+    const box = $('tp-list');
+    box.textContent = '';
+    for (let i = 0; i < 5; i++) {
+      const row = document.createElement('div'); row.className = 'tp-row'; row.hidden = true;
+      const head = document.createElement('div'); head.className = 'tp-head';
+      const name = document.createElement('span'); name.className = 'tp-name';
+      const cpu = document.createElement('span'); cpu.className = 'tp-cpu';
+      const cpuNum = document.createElement('span');
+      const mem = document.createElement('span'); mem.className = 'tp-mem';
+      cpu.append(cpuNum, mem);
+      head.append(name, cpu);
+      const track = document.createElement('div'); track.className = 'tp-track';
+      const bar = document.createElement('i');
+      track.append(bar);
+      row.append(head, track);
+      box.append(row);
+      tpRows.push({ row, name, cpuNum, mem, bar, w: '' });
+    }
+  }
+
+  let topProcsBusy = false;
+  async function tickTopProcs() {
+    if (!api || !api.getTopProcs || topProcsBusy) return;
+    topProcsBusy = true;
+    try {
+      const list = await api.getTopProcs();
+      if (!tpRows.length) buildTpRows();
+      if (!Array.isArray(list)) return;
+      const max = Math.max(1, list.length ? list[0].cpu : 1);
+      for (let i = 0; i < tpRows.length; i++) {
+        const r = tpRows[i], p = list[i];
+        if (!p) { r.row.hidden = true; continue; }
+        r.row.hidden = false;
+        setText(r.name, p.name);
+        setText(r.cpuNum, p.cpu + '%');
+        setText(r.mem, p.rssMb >= 1024 ? (p.rssMb / 1024).toFixed(1) + 'G' : p.rssMb + 'M');
+        const sx = 'scaleX(' + Math.max(0.02, Math.min(1, p.cpu / max)).toFixed(3) + ')';
+        if (r.w !== sx) { r.bar.style.transform = sx; r.w = sx; }
+      }
+    } catch (e) {
+      /* ignore */
+    } finally {
+      topProcsBusy = false;
+    }
+  }
+
   // ── Weather ──────────────────────────────────────────────
   let wBuilt = false, wStatus, wMain, wTemp, wDesc, wFeels;
   const wItems = {};
@@ -1497,12 +1573,19 @@
     storageUnsub = api.onStorageChanged(() => { tickLsblk(); tickDiskIo(); });
   }
 
+  // ── Akku/Netzteil: udev-Event → sofort neu einlesen ──────
+  let batteryUnsub = null;
+  if (api && api.onBatteryChanged) {
+    batteryUnsub = api.onBatteryChanged(() => tickBattery());
+  }
+
   // ── Teardown ─────────────────────────────────────────────
   window.addEventListener('beforeunload', () => {
     flushNotes();
     glideOn = false;
     timers.forEach(clearInterval);
     try { if (storageUnsub) storageUnsub(); } catch (e) {}
+    try { if (batteryUnsub) batteryUnsub(); } catch (e) {}
   });
 
   // ── Hostname (topbar + boot share one call) ──────────────
@@ -1523,8 +1606,9 @@
     every(tickNet, NET_MS);
     every(tickServices, 8000);
     every(tickDiskIo, 4000);
+    every(tickTopProcs, 4000);
     every(tickLsblk, 30000);
-    every(tickBattery, 30000);
+    every(tickBattery, 10000);            // udev-Event (battery-changed) triggert zusätzlich sofort
     every(tickWeather, 900000);
     every(tickRss, 1200000);
   }

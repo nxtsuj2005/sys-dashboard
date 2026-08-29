@@ -9,6 +9,10 @@ let storageMonitor = null;
 let storageNotifyTimer = null;
 let storageMonitorRetries = 0;
 let storageMonitorStopped = false;
+let batteryMonitor = null;
+let batteryNotifyTimer = null;
+let batteryMonitorRetries = 0;
+let batteryMonitorStopped = false;
 
 app.setName('SysDashboard');
 
@@ -157,11 +161,13 @@ if (!gotSingleInstanceLock) {
     killOldXterm();
     createWindow();
     startStorageMonitor();
+    startBatteryMonitor();
   });
 }
 
 app.on('window-all-closed', () => {
   stopStorageMonitor();
+  stopBatteryMonitor();
   killExternalTerminal();
   log('Dashboard beendet');
   app.quit();
@@ -169,10 +175,10 @@ app.on('window-all-closed', () => {
 
 // Aufräumen auch auf nicht-graceful Pfaden (SIGKILL kann man nicht abfangen,
 // aber SIGTERM/SIGINT/SIGHUP und before-quit schon).
-app.on('before-quit', () => { stopStorageMonitor(); killExternalTerminal(); });
+app.on("before-quit", () => { stopStorageMonitor(); stopBatteryMonitor(); killExternalTerminal(); });
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(sig, () => {
-    try { killExternalTerminal(); stopStorageMonitor(); } catch {}
+    try { killExternalTerminal(); stopStorageMonitor(); stopBatteryMonitor(); } catch {}
     app.quit();
     process.exit(0);
   });
@@ -232,6 +238,61 @@ function stopStorageMonitor() {
   if (storageMonitor) {
     try { storageMonitor.kill('SIGTERM'); } catch {}
     storageMonitor = null;
+  }
+}
+
+// ── Battery / AC monitor ──────────────────────────────────────
+// udev feuert power_supply-Events beim Ein-/Ausstecken des Netzteils (und bei
+// Kapazitätsschwellen) → sofort im Renderer ein tickBattery() auslösen, statt auf
+// den 10s-Poll zu warten.
+function notifyBatteryChanged() {
+  clearTimeout(batteryNotifyTimer);
+  batteryNotifyTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('battery-changed');
+    }
+  }, 150);
+}
+
+function startBatteryMonitor() {
+  if (batteryMonitor) return;
+  batteryMonitorStopped = false;
+
+  batteryMonitor = spawn('udevadm', ['monitor', '--udev', '--subsystem-match=power_supply'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  batteryMonitor.stdout.on('data', (buf) => {
+    batteryMonitorRetries = 0;
+    if (/(change|add|remove)\s+/.test(buf.toString())) notifyBatteryChanged();
+  });
+  batteryMonitor.stderr.on('data', (buf) => {
+    const msg = buf.toString().trim();
+    if (msg) log('udevadm monitor (power): ' + msg);
+  });
+  batteryMonitor.on('error', (err) => {
+    log('Battery-Monitor nicht verfügbar: ' + err.message);
+    batteryMonitor = null;
+  });
+  batteryMonitor.on('exit', (code) => {
+    batteryMonitor = null;
+    log(`Battery-Monitor beendet (exit ${code})`);
+    if (!batteryMonitorStopped && batteryMonitorRetries < 3) {
+      batteryMonitorRetries++;
+      setTimeout(startBatteryMonitor, 2000);
+    }
+  });
+
+  log('Battery-Monitor gestartet');
+}
+
+function stopBatteryMonitor() {
+  batteryMonitorStopped = true;
+  clearTimeout(batteryNotifyTimer);
+  batteryNotifyTimer = null;
+  if (batteryMonitor) {
+    try { batteryMonitor.kill('SIGTERM'); } catch {}
+    batteryMonitor = null;
   }
 }
 
@@ -384,6 +445,52 @@ ipcMain.handle('get-disk-io', async () => new Promise((resolve) => {
   }, 1000);
 }));
 
+// ── IPC: Top-Prozesse (CPU jetzt, Delta-Sampling wie get-disk-io) ──────
+ipcMain.handle('get-top-procs', async () => new Promise((resolve) => {
+  const nCpu = os.cpus().length || 1;
+  const readAll = () => {
+    const snap = { total: 0, procs: {} };
+    try {
+      const cpu = fs.readFileSync('/proc/stat', 'utf8').split('\n', 1)[0].trim().split(/\s+/).slice(1).map(Number);
+      snap.total = cpu.reduce((a, b) => a + (b || 0), 0);
+    } catch {}
+    let pids = [];
+    try { pids = fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d)); } catch {}
+    for (const pid of pids) {
+      try {
+        const st = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+        const f = st.slice(st.lastIndexOf(')') + 2).split(' ');   // comm kann ') ' enthalten
+        snap.procs[pid] = (parseInt(f[11]) || 0) + (parseInt(f[12]) || 0);   // utime + stime (ab state)
+      } catch {}
+    }
+    return snap;
+  };
+  const a = readAll();
+  setTimeout(() => {
+    const b = readAll();
+    const totalDelta = b.total - a.total;
+    const rows = [];
+    if (totalDelta > 0) {
+      for (const pid of Object.keys(b.procs)) {
+        if (!(pid in a.procs)) continue;
+        const d = b.procs[pid] - a.procs[pid];
+        if (d <= 0) continue;
+        const pct = (d / totalDelta) * nCpu * 100;
+        if (pct < 0.5) continue;
+        let name = pid, rssMb = 0;
+        try { name = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() || String(pid); } catch {}
+        try {
+          const sm = fs.readFileSync(`/proc/${pid}/statm`, 'utf8').split(' ');
+          rssMb = Math.round(((parseInt(sm[1]) || 0) * 4096) / 1048576);
+        } catch {}
+        rows.push({ pid: +pid, name, cpu: Math.round(pct), rssMb });
+      }
+    }
+    rows.sort((x, y) => y.cpu - x.cpu);
+    resolve(rows.slice(0, 5));
+  }, 700);
+}));
+
 // ── IPC: Weather ───────────────────────────────────────────────
 ipcMain.handle('get-weather', async (_,city) => new Promise((resolve) => {
   const u = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
@@ -468,8 +575,7 @@ let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
 let termSpawnTs         = 0;   // Zeitpunkt des letzten spawn()
 let applyPropsInFlight  = false;   // volle xprop-Kette läuft gerade
 let geomDebounceTimer   = null;    // Debounce für Geometrie-Updates
-let lastRaiseTs         = 0;       // Zeitpunkt des letzten tatsächlichen windowraise
-let raiseTimer          = null;    // Debounce-Timer für raiseTerminalSoon
+let lastRaiseTs         = 0;       // Zeitpunkt des letzten windowraise (leading-edge throttle)
 
 // xterm im Stacking wieder über das Dashboard heben. windowraise bleibt innerhalb
 // des "unten"-Bands (KWin-Regel below=Force auf wmclass SysDashboardXterm bleibt in
@@ -479,18 +585,15 @@ function raiseTerminal() {
   exec(`xdotool windowraise ${termWid}`, (e) => { if (e) log('raiseTerminal: ' + e.message); });
 }
 
-// Gedrosselte Variante für die Klick-/Fokus-Pfade: jeder Raise blitzt den xterm
-// kurz neu (Expose), also Events in einem 90ms-Fenster zu EINEM Raise bündeln und
-// danach 200ms Ruhe. Der 90ms-Verzug lässt KWins eigenes Click-Raise zuerst
-// durchlaufen → ein Ruck statt zwei.
+// Klick-/Fokus-Pfad: KWin hebt bei jedem Klick das Dashboard übern xterm — den
+// SOFORT zurückholen (jede Verzögerung = xterm sichtbar weg). Nur ein grober
+// Leading-Edge-Throttle gegen xdotool-Sturm bei Klick-Serien.
 function raiseTerminalSoon() {
-  if (!termWid || raiseTimer) return;
-  raiseTimer = setTimeout(() => {
-    raiseTimer = null;
-    if (Date.now() - lastRaiseTs < 200) return;
-    lastRaiseTs = Date.now();
-    raiseTerminal();
-  }, 90);
+  if (!termWid) return;
+  const now = Date.now();
+  if (now - lastRaiseTs < 60) return;
+  lastRaiseTs = now;
+  raiseTerminal();
 }
 
 function toScreenGeom(geom) {
@@ -678,6 +781,7 @@ ipcMain.on('terminal-clear', () => {
 ipcMain.on('dashboard-close', () => {
   log('Dashboard: Schließen über Terminal-Button');
   stopStorageMonitor();
+  stopBatteryMonitor();
   killExternalTerminal();
   app.quit();
 });

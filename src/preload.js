@@ -17,10 +17,16 @@ contextBridge.exposeInMainWorld('api', {
   getBattery: ()      => ipcRenderer.invoke('get-battery'),
   getLogs:    ()      => ipcRenderer.invoke('get-logs'),
   getDiskIo:  ()      => ipcRenderer.invoke('get-disk-io'),
+  getTopProcs: ()     => ipcRenderer.invoke('get-top-procs'),
   onStorageChanged: (cb) => {
     const listener = () => cb();
     ipcRenderer.on('storage-changed', listener);
     return () => ipcRenderer.removeListener('storage-changed', listener);
+  },
+  onBatteryChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('battery-changed', listener);
+    return () => ipcRenderer.removeListener('battery-changed', listener);
   },
 
   // Externes Terminal
