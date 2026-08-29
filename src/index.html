@@ -243,15 +243,14 @@
   #terminal-wrapper { flex: 1; min-height: 0; }
 
   /* ── Storage / lsblk ── */
-  .storage-body { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-  /* zweispaltig: links intern, rechts extern — spart vertikale Länge, kein Scrollen */
-  .lsblk-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .lsblk-col { min-width: 0; display: flex; flex-direction: column; gap: 4px;
-    border-left: 1px solid var(--border); padding-left: 9px; }
-  .lsblk-col:first-child { border-left: none; padding-left: 0; }
+  .storage-body { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+  /* zweispaltig: links intern, rechts extern — jede Spalte ein Panel-Feld wie die Wetter-Kacheln */
+  .lsblk-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .lsblk-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+    background: var(--panel); border-radius: 6px; padding: 6px 9px; }
   .lsblk-cap { flex-shrink: 0; font: 600 9px/1 var(--mono); letter-spacing: 1.5px;
     text-transform: uppercase; color: var(--text-2); }
-  .lsblk-tree { flex: 1; min-height: 0; overflow: auto; font: 400 10px/1.5 var(--mono);
+  .lsblk-tree { flex: 1; min-height: 0; overflow: auto; font: 400 9.5px/1.45 var(--mono);
     white-space: pre; color: var(--text); }
   .lsblk-none { color: var(--muted); }
   .lb-head { color: var(--muted); }
@@ -360,9 +359,9 @@
     .weather-temp { font-size: 24px; }
     .weather-item { padding: 5px 8px; }
     .disk-io-list { max-height: 68px; }
-    .lsblk-cols { gap: 7px; }
-    .lsblk-col { padding-left: 7px; }
-    .lsblk-tree { font-size: 9px; line-height: 1.45; }
+    .lsblk-cols { gap: 6px; }
+    .lsblk-col { padding: 5px 7px; }
+    .lsblk-tree { font-size: 9px; line-height: 1.4; }
   }
 </style>
 </head>
