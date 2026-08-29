@@ -93,16 +93,46 @@
     content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
     background: linear-gradient(90deg, transparent, var(--accent) 18%, transparent 46%, var(--glow-soft) 72%, transparent);
   }
-  .tb-logo   { font: 700 13px/1 var(--display); color: var(--accent); letter-spacing: 4px; text-transform: uppercase; text-shadow: 0 0 14px var(--glow-soft); }
+  .tb-logo   { font: 700 13px/1 var(--display); color: var(--accent); letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 14px var(--glow-soft); white-space: nowrap; }
   .tb-online { display: inline-flex; align-items: center; gap: 6px; font: 400 10px/1 var(--mono); letter-spacing: 1.5px; color: var(--text-2); }
   .tb-dot    { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 80%, transparent); }
   .tb-spacer { flex: 1; }
   .tb-host   { font: 400 12px/1 var(--mono); color: var(--muted); display: inline-flex; gap: 8px; align-items: baseline; }
   #tb-hostname { color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; }
-  .bat-pill  { font: 400 11px/1 var(--mono); padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-2); }
-  .bat-pill.is-green  { color: var(--green); }
-  .bat-pill.is-orange { color: var(--orange); }
-  .bat-pill.is-red    { color: var(--red); }
+
+  /* ── Akku (Handy-Stil: Gehäuse + Füllbalken + Prozent innen + Blitz beim Laden) ── */
+  .bat       { display: inline-flex; align-items: center; }
+  .bat-body  {
+    position: relative; width: 50px; height: 17px; margin-right: 4px;
+    border: 1.5px solid var(--text-2); border-radius: 3px;
+    display: flex; align-items: center;
+  }
+  .bat-body::after {                       /* Pluspol rechts */
+    content: ''; position: absolute; right: -4px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 7px; border-radius: 0 2px 2px 0; background: var(--text-2);
+  }
+  .bat-fill  {
+    position: absolute; left: 1.5px; top: 1.5px; bottom: 1.5px;
+    width: 0; max-width: calc(100% - 3px);
+    border-radius: 1px; background: var(--green);
+    transition: width .5s ease, background-color .4s ease;
+  }
+  .bat-label {
+    position: relative; z-index: 1; width: 100%; text-align: center;
+    font: 600 10px/1 var(--mono); font-variant-numeric: tabular-nums;
+    color: var(--text); text-shadow: 0 0 3px rgba(0,0,0,.7);
+  }
+  .bat-bolt  {
+    position: absolute; z-index: 1; left: 3px; top: 50%; transform: translateY(-50%);
+    font-size: 9px; line-height: 1; color: var(--accent);
+    filter: drop-shadow(0 0 3px var(--glow));
+  }
+  .bat.lvl-warn .bat-fill { background: var(--orange); }
+  .bat.lvl-crit .bat-fill { background: var(--red); }
+  .bat.lvl-crit:not(.is-charging) .bat-body { border-color: color-mix(in srgb, var(--red) 65%, var(--border)); }
+  .bat.is-charging .bat-fill { background: var(--accent); }
+  .bat.is-charging .bat-body { border-color: var(--accent); }
+
   .tb-clock  { font: 400 16px/1 var(--mono); color: var(--text); letter-spacing: 1.5px; font-variant-numeric: tabular-nums; }
 
 
@@ -303,7 +333,7 @@
     letter-spacing: 2px; opacity: 0; transform: translateY(6px);
     transition: opacity .4s ease, letter-spacing .6s cubic-bezier(.2,.7,.2,1), transform .4s ease;
   }
-  .boot-logo.show { opacity: 1; letter-spacing: 11px; transform: none; }
+  .boot-logo.show { opacity: 1; letter-spacing: 7px; transform: none; white-space: nowrap; }
   .boot-logo .boot-mid { color: var(--accent); }
   .boot-logo.glitch { animation: boot-glitch .22s steps(2, jump-none) 1; }
   .boot-tag {
@@ -362,6 +392,8 @@
     .lsblk-cols { gap: 6px; }
     .lsblk-col { padding: 5px 7px; }
     .lsblk-tree { font-size: 9px; line-height: 1.4; }
+    .bat-body { width: 46px; height: 15px; }
+    .bat-label { font-size: 9px; }
   }
 </style>
 </head>
@@ -370,11 +402,11 @@
 
   <!-- TOPBAR -->
   <header id="topbar">
-    <span class="tb-logo">⬡ SYS·DASH</span>
+    <span class="tb-logo">⬡ SASSY·DASH</span>
     <span class="tb-online"><span class="tb-dot"></span>ONLINE</span>
     <span class="tb-spacer"></span>
     <span class="tb-host"><span id="tb-hostname">—</span><span class="tb-up" id="tb-uptime"></span></span>
-    <span class="bat-pill" id="bat-pill" hidden><span id="bat-pct">⚡ —%</span></span>
+    <span class="bat" id="bat-pill" hidden><span class="bat-body"><span class="bat-fill" id="bat-fill"></span><span class="bat-bolt" id="bat-bolt" hidden>⚡</span><span class="bat-label" id="bat-pct">—%</span></span></span>
     <span class="tb-clock" id="clock">--:--:--</span>
   </header>
 
@@ -515,7 +547,7 @@
 <!-- WELCOME / BOOT -->
 <div id="boot">
   <div class="boot-inner">
-    <div class="boot-logo" id="boot-logo">SYS<span class="boot-mid">·</span>DASH</div>
+    <div class="boot-logo" id="boot-logo">SASSY<span class="boot-mid">·</span>DASH</div>
     <div class="boot-tag" id="boot-tag">System Monitor</div>
     <div class="boot-feed" id="boot-feed"></div>
     <div class="boot-bar"><div class="boot-bar-fill" id="boot-bar-fill"></div></div>
@@ -796,6 +828,8 @@
   const netbTx      = $('netb-tx');
   const batPill     = $('bat-pill');
   const batPctEl    = $('bat-pct');
+  const batFill     = $('bat-fill');
+  const batBolt     = $('bat-bolt');
 
   // ── Row pools (built once) ──────────────────────────────────
   const svcRows = [];
@@ -1317,10 +1351,16 @@
     }
     lastBattery = d;
     batPill.hidden = false;
-    const pct = d.capacity;
-    setText(batPctEl, '⚡ ' + pct + '%');
-    const cls = 'bat-pill ' + (pct > 40 ? 'is-green' : pct >= 20 ? 'is-orange' : 'is-red');
+    const pct = Math.max(0, Math.min(100, Math.round(d.capacity || 0)));
+    const charging = d.status === 'Charging' || d.status === 'Full';
+    // DOM-Diff: nur anfassen, was sich geändert hat
+    const w = pct + '%';
+    if (batFill.style.width !== w) batFill.style.width = w;
+    setText(batPctEl, pct + '%');
+    const lvl = pct <= 15 ? 'lvl-crit' : pct < 25 ? 'lvl-warn' : 'lvl-ok';
+    const cls = 'bat ' + lvl + (charging ? ' is-charging' : '');
     if (batPill.className !== cls) batPill.className = cls;
+    if (batBolt.hidden !== !charging) batBolt.hidden = !charging;
     const parts = [];
     if (d.status) parts.push(d.status);
     if (d.timeLeft) {
