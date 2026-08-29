@@ -30,4 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   termRestart:     ()     => ipcRenderer.send('terminal-restart'),
   termClear:       ()     => ipcRenderer.send('terminal-clear'),
   closeDashboard:  ()     => ipcRenderer.send('dashboard-close'),
+
+  // App-Shortcuts (Key wird im Main-Prozess gegen eine Whitelist geprüft)
+  launchApp:       (key)  => ipcRenderer.send('launch-app', key),
 });

@@ -79,7 +79,7 @@
   #main   { display: grid; grid-template-columns: 1fr 1fr clamp(260px, 24vw, 320px); gap: var(--gap); min-height: 0; overflow: hidden; }
   #bottom { display: grid; grid-template-columns: 1.3fr 1fr 1.1fr; gap: var(--gap); min-height: 0; overflow: hidden; }
   #kpi > *, #main > *, #bottom > * { min-width: 0; }
-  #main-right { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+  #main-mid, #main-right { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
 
   /* ── Topbar ── */
   #topbar {
@@ -207,6 +207,8 @@
   .bar-fill.danger { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 60%, var(--bg)), var(--red)); box-shadow: 0 0 8px color-mix(in srgb, var(--red) 55%, transparent); }
 
   /* ── System status card ── */
+  /* mittlere Spalte: kompakte Status-Karte oben, Shortcuts füllen den Rest */
+  #status-card { flex: 0 0 auto; }
   .status-body { overflow-y: auto; gap: 0; }
   .status-section + .status-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .section-title { font: 600 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
@@ -226,6 +228,26 @@
   .alert-dot.sev-green  { background: var(--green); }
   .alert-label  { color: var(--text); text-transform: uppercase; letter-spacing: .5px; }
   .alert-detail { color: var(--muted); margin-left: auto; padding-left: 8px; }
+
+  /* ── Shortcuts card ── */
+  #shortcuts-card { flex: 1 1 auto; min-height: 0; }
+  .sc-body {
+    flex: 1; min-height: 0; overflow: hidden;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; gap: 6px;
+  }
+  .sc-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-2); cursor: pointer; padding: 6px 4px; min-width: 0;
+    font: 600 9px/1 var(--mono); letter-spacing: .8px; text-transform: uppercase;
+    transition: border-color .15s ease, box-shadow .15s ease, color .15s ease;
+  }
+  .sc-btn svg { width: 21px; height: 21px; display: block; flex-shrink: 0; color: var(--sc-ic, var(--accent)); }
+  .sc-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .sc-btn:hover { border-color: var(--accent-dim); box-shadow: inset 0 0 18px -12px var(--glow); color: var(--text); }
+  .sc-btn:active { transform: translateY(1px); }
+  .sc-btn[data-app="terminal"], .sc-btn[data-app="htop"] { --sc-ic: var(--green); }
+  .sc-btn[data-app="settings"] { --sc-ic: var(--text-2); }
 
   /* ── Weather ── */
   #weather-card { flex: 0 0 auto; }
@@ -394,6 +416,9 @@
     .lsblk-tree { font-size: 9px; line-height: 1.4; }
     .bat-body { width: 46px; height: 15px; }
     .bat-label { font-size: 9px; }
+    .sc-body { gap: 4px; }
+    .sc-btn { font-size: 8px; padding: 4px 3px; gap: 3px; }
+    .sc-btn svg { width: 17px; height: 17px; }
   }
 </style>
 </head>
@@ -450,22 +475,28 @@
       </div>
     </div>
 
-    <!-- System status -->
-    <div class="card" id="status-card">
-      <div class="card-title">System-Status</div>
-      <div class="card-body status-body">
-        <div class="status-section">
-          <div class="section-title">Dienste</div>
-          <div class="svc-line">
-            <span id="svc-running">running —</span>
-            <span class="svc-val is-green" id="svc-failed">failed —</span>
+    <!-- Middle column: system status (compact) + app shortcuts -->
+    <div id="main-mid">
+      <div class="card" id="status-card">
+        <div class="card-title">System-Status</div>
+        <div class="card-body status-body">
+          <div class="status-section">
+            <div class="section-title">Dienste</div>
+            <div class="svc-line">
+              <span id="svc-running">running —</span>
+              <span class="svc-val is-green" id="svc-failed">failed —</span>
+            </div>
+            <div id="svc-fail-list"></div>
           </div>
-          <div id="svc-fail-list"></div>
+          <div class="status-section">
+            <div class="section-title">Alerts</div>
+            <div id="alert-list"></div>
+          </div>
         </div>
-        <div class="status-section">
-          <div class="section-title">Alerts</div>
-          <div id="alert-list"></div>
-        </div>
+      </div>
+      <div class="card" id="shortcuts-card">
+        <div class="card-title">Shortcuts</div>
+        <div class="card-body sc-body" id="sc-body"></div>
       </div>
     </div>
 
@@ -1406,6 +1437,41 @@
     $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
     $('term-btn-clear').addEventListener('click', () => api.termClear(), true);
     $('term-btn-close').addEventListener('click', () => { flushNotes(); api.closeDashboard(); }, true);
+  })();
+
+  // ── App-Shortcuts ────────────────────────────────────────
+  // Buttons in JS bauen (Icon-Map + Klick → api.launchApp). Der Key ist im
+  // Main-Prozess gegen eine Whitelist geprüft.
+  (function initShortcuts() {
+    const box = $('sc-body');
+    if (!box) return;
+    if (!api || !api.launchApp) { const c = $('shortcuts-card'); if (c) c.hidden = true; return; }
+    // monochrome Inline-SVGs, Farbe via currentColor (--sc-ic pro Button, siehe CSS)
+    const ICONS = {
+      chromium: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 4 5.8 4 9s-1.4 6.4-4 9c-2.6-2.6-4-5.8-4-9s1.4-6.4 4-9z"/></svg>',
+      terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
+      settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19"/></svg>',
+      dolphin:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+      discord:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 5.3A16 16 0 0 0 15.9 4l-.25.5a15 15 0 0 1 3.7 1.2c-4.4-2-9.2-2-13.7 0A15 15 0 0 1 9.35 4.5L9.1 4A16 16 0 0 0 5 5.3C1.6 10.3 .7 15.2 1.15 20a16 16 0 0 0 4.9 2.5l.65-1a10 10 0 0 1-1.65-.8l.4-.32c3.2 1.5 6.7 1.5 9.9 0l.4.32a10 10 0 0 1-1.66.8l.66 1a16 16 0 0 0 4.9-2.5c.5-4.9-.4-9.7-3.5-14.7zM8.9 16.4c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.83.9 1.8 2c0 1.1-.8 2-1.8 2zm6.2 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.83.9 1.8 2c0 1.1-.8 2-1.8 2z"/></svg>',
+      htop:     '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3.6" height="7" rx="1"/><rect x="8.7" y="9" width="3.6" height="12" rx="1"/><rect x="14.4" y="4.5" width="3.6" height="16.5" rx="1"/></svg>',
+    };
+    const APPS = [
+      ['chromium', 'Chromium'],
+      ['terminal', 'Terminal'],
+      ['settings', 'Einstellungen'],
+      ['dolphin',  'Dolphin'],
+      ['discord',  'Discord'],
+      ['htop',     'htop'],
+    ];
+    for (const [key, label] of APPS) {
+      const b = document.createElement('button');
+      b.className = 'sc-btn';
+      b.dataset.app = key;
+      b.title = label + ' starten';
+      b.innerHTML = ICONS[key] + '<span>' + label + '</span>';
+      b.addEventListener('click', () => api.launchApp(key));
+      box.append(b);
+    }
   })();
 
   // ── Single resize handler (canvases + terminal geometry) ──
