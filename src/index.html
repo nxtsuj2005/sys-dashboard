@@ -678,7 +678,7 @@
   // right over the sample interval. Driven by a low-rate rAF loop (this box has
   // no GPU compositing, so CSS-transform animation is far more expensive than a
   // ~12fps canvas repaint). The loop early-outs the moment nothing is moving.
-  const SYS_MS = 2500, NET_MS = 2000;
+  const SYS_MS = 2500, NET_MS = 2000, STORE_MS = 2500;
   // Frames/sec for the scroll glide. This box has no GPU compositing, so every
   // extra redraw costs real CPU — 8fps with an ease-out reads as smooth motion
   // for ~1px/frame of travel. Bump toward 30 for glassier flow at 2–3× the cost,
@@ -687,6 +687,7 @@
   const GLIDE_SPAN = 0.85;                      // finish a touch early → brief idle tail before the next sample
   let sysSampleTs = performance.now() - SYS_MS;
   let netSampleTs = performance.now() - NET_MS;
+  let storeSampleTs = performance.now() - STORE_MS;
   const scrollFrac = (ts, span) => {
     const f = (performance.now() - ts) / (span * GLIDE_SPAN);
     if (f <= 0) return 0;
@@ -717,58 +718,67 @@
     const vmax = netVmax(netHist);
     plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
   }
-  function sparkPct(cv, hist, color) {
+  // ── KPI mini-graphs — same glide system as the big System-Graph ──
+  // Each spark scrolls a new sample in from the right over its sample interval;
+  // the shared glideFrame loop drives them (frac from scrollFrac). Gradient fill
+  // + glow (shadowBlur) only on the settled frame — mid-scroll is a bare stroke,
+  // the only thing the software compositor on this GPU-less box keeps up with.
+  // Gridlines are skipped here: at ~20px tall they're just noise.
+  function drawGlideSpark(cv, hist, vmax, color, frac) {
     const s = cv.prep();
-    if (!s.w) return;
-    plotLine(cv.ctx, hist, GRAPH_MAX, 100, s.w, s.h, color, true, 0, false);
+    if (!s.w || vmax <= 0) return;
+    const settled = frac == null || frac >= 1;
+    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, color, settled, offPx(settled ? 1 : frac, s.w), settled);
   }
-  function sparkNet(cv, hist) {
-    const s = cv.prep();
-    if (!s.w) return;
-    const vmax = netVmax(hist);
-    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.85)', true, 0, false);
-  }
-  function drawKpiSparks() {                    // sparks are tiny — redraw on tick, no scroll
-    sparkPct(kpiCpuCv, cpuHist, 'rgba(79,156,249,0.9)');
-    sparkPct(kpiRamCv, ramHist, 'rgba(63,185,80,0.9)');
-    sparkNet(kpiNetCv, netHist);
-  }
-  function drawStoreSpark() {
-    sparkPct(kpiStoreCv, storeHist, 'rgba(210,153,34,0.8)');
-  }
+  function drawKpiCpu(f)   { drawGlideSpark(kpiCpuCv,   cpuHist,   100,              'rgba(79,156,249,0.9)', f); }
+  function drawKpiRam(f)   { drawGlideSpark(kpiRamCv,   ramHist,   100,              'rgba(63,185,80,0.9)',  f); }
+  function drawKpiNet(f)   { drawGlideSpark(kpiNetCv,   netHist,   netVmax(netHist), 'rgba(79,156,249,0.9)', f); }
+  function drawKpiStore(f) { drawGlideSpark(kpiStoreCv, storeHist, 100,              'rgba(210,153,34,0.8)', f); }
 
   // ── low-rate scroll loop ────────────────────────────────────
   const GLIDE_MIN_DT = GLIDE_FPS > 0 ? 1000 / GLIDE_FPS : Infinity;
   let glideOn = false, glideLast = 0;
+  // Only repaint the canvas group that is actually in motion this frame (plus one
+  // final settled frame each) — a net-only glide never touches the CPU/RAM/store
+  // sparks. Keeps the per-frame cost proportional to what's moving.
+  let sysMoving = false, netMoving = false, storeMoving = false;
   function glideFrame(now) {
-    const sysF = scrollFrac(sysSampleTs, SYS_MS);
-    const netF = scrollFrac(netSampleTs, NET_MS);
-    if (sysF >= 1 && netF >= 1) {               // both settled — final frame, then stop
-      drawSysGraph(1); drawNetBottom(1);
-      glideOn = false;
-      return;
-    }
-    if (now - glideLast >= GLIDE_MIN_DT) {
+    const sysF   = scrollFrac(sysSampleTs, SYS_MS);
+    const netF   = scrollFrac(netSampleTs, NET_MS);
+    const storeF = scrollFrac(storeSampleTs, STORE_MS);
+    const allSettled = sysF >= 1 && netF >= 1 && storeF >= 1;
+    // paint on the throttle tick, OR unconditionally on the final settled frame
+    // so the last thing drawn is always the hi-quality (glow + fill) version
+    if (allSettled || now - glideLast >= GLIDE_MIN_DT) {
       glideLast = now;
-      drawSysGraph(sysF);
-      drawNetBottom(netF);
+      if (sysF < 1 || sysMoving)     { drawSysGraph(sysF); drawKpiCpu(sysF); drawKpiRam(sysF); }
+      if (netF < 1 || netMoving)     { drawNetBottom(netF); drawKpiNet(netF); }
+      if (storeF < 1 || storeMoving) { drawKpiStore(storeF); }
+      sysMoving = sysF < 1; netMoving = netF < 1; storeMoving = storeF < 1;
     }
+    if (allSettled) { glideOn = false; return; }
     requestAnimationFrame(glideFrame);
   }
   function kickGlide() {
     if (document.hidden) return;
-    if (GLIDE_FPS <= 0) { drawSysGraph(1); drawNetBottom(1); return; }
+    if (GLIDE_FPS <= 0) {
+      drawSysGraph(1); drawNetBottom(1);
+      drawKpiCpu(1); drawKpiRam(1); drawKpiNet(1); drawKpiStore(1);
+      return;
+    }
     if (glideOn) return;
     glideOn = true; glideLast = 0;
     requestAnimationFrame(glideFrame);
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kickGlide(); });
 
-  function redrawCanvases() {                   // resize — full repaint
-    drawSysGraph(scrollFrac(sysSampleTs, SYS_MS));
-    drawNetBottom(scrollFrac(netSampleTs, NET_MS));
-    drawKpiSparks();
-    drawStoreSpark();
+  function redrawCanvases() {                   // resize — full repaint at current glide position
+    const sysF   = scrollFrac(sysSampleTs, SYS_MS);
+    const netF   = scrollFrac(netSampleTs, NET_MS);
+    const storeF = scrollFrac(storeSampleTs, STORE_MS);
+    drawSysGraph(sysF);
+    drawNetBottom(netF);
+    drawKpiCpu(sysF); drawKpiRam(sysF); drawKpiNet(netF); drawKpiStore(storeF);
     kickGlide();
   }
 
@@ -934,8 +944,7 @@
       setText(upEl, '· up ' + fmtUptime(d.uptime));
       renderCores((d.cpu && d.cpu.cores) || []);
       sysSampleTs = performance.now();
-      drawKpiSparks();
-      kickGlide();
+      kickGlide();                               // glide drives the CPU + RAM KPI sparks
       cpuSustain = cpu >= 92 ? cpuSustain + 1 : 0;
       recomputeAlerts();
     } finally {
@@ -988,9 +997,8 @@
       setText(kpiNetSub, '↑ ' + fmtRate(d.tx || 0));
       setText(netbRx, fmtRate(d.rx || 0), true);
       setText(netbTx, fmtRate(d.tx || 0), true);
-      sparkNet(kpiNetCv, netHist);
       netSampleTs = performance.now();
-      kickGlide();
+      kickGlide();                               // glide drives the Netzwerk KPI spark
     } finally {
       netBusy = false;
     }
@@ -1089,7 +1097,8 @@
       setText(kpiStoreVal, ref ? String(ref.size || '—') : '—', true);
       remember(storeHist, 0);
     }
-    drawStoreSpark();
+    storeSampleTs = performance.now();
+    kickGlide();                                 // glide drives the Speicher KPI spark
   }
 
   function rebuildDiskIoRows() {
