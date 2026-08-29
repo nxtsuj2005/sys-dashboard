@@ -60,6 +60,20 @@
     background: repeating-linear-gradient(0deg, rgba(255,255,255,0.013) 0 1px, transparent 1px 4px);
   }
 
+  /* Scanline-Sweep — One-Shot per JS (~alle 23s), sonst kein Kostenpunkt.
+     transform: translateY (nie top/height) → GPU-kompositiert, kein Relayout. */
+  #fx-sweep {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 49;
+    pointer-events: none; opacity: 0; transform: translateY(-12px); will-change: transform, opacity;
+    background: linear-gradient(90deg, transparent, var(--glow-soft) 30%, color-mix(in srgb, var(--accent) 35%, transparent) 50%, var(--glow-soft) 70%, transparent);
+  }
+  #fx-sweep.run { animation: fx-sweep 2.8s cubic-bezier(.42, 0, .7, 1) 1; }
+  @keyframes fx-sweep {
+    0%   { transform: translateY(-12px); opacity: 0; }
+    9%   { opacity: .5; }
+    100% { transform: translateY(100vh); opacity: 0; }
+  }
+
   /* ── Layout ── */
   #app {
     display: grid;
@@ -94,11 +108,27 @@
     background: linear-gradient(90deg, transparent, var(--accent) 18%, transparent 46%, var(--glow-soft) 72%, transparent);
   }
   .tb-logo   { font: 700 13px/1 var(--display); color: var(--accent); letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 14px var(--glow-soft); white-space: nowrap; }
+  .tb-logo.glitch { animation: tb-glitch .3s steps(2, jump-none) 1; }
   .tb-online { display: inline-flex; align-items: center; gap: 6px; font: 400 10px/1 var(--mono); letter-spacing: 1.5px; color: var(--text-2); }
   .tb-dot    { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 80%, transparent); }
   .tb-spacer { flex: 1; }
   .tb-host   { font: 400 12px/1 var(--mono); color: var(--muted); display: inline-flex; gap: 8px; align-items: baseline; }
   #tb-hostname { color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; }
+  /* Temp + Load — Daten kommen schon aus getSystemStats, nur bisher ungenutzt */
+  .tb-sys    { display: inline-flex; gap: 12px; font: 400 11px/1 var(--mono); color: var(--muted); align-items: baseline; letter-spacing: .5px; }
+  .tb-temp::before { content: '≋ '; color: var(--muted); }
+  .tb-temp.warn { color: var(--orange); } .tb-temp.warn::before { color: var(--orange); }
+  .tb-temp.crit { color: var(--red); }    .tb-temp.crit::before { color: var(--red); }
+  .tb-load::before { content: 'load '; color: var(--muted); letter-spacing: 1px; }
+  .tb-load   { color: var(--text-2); }
+  .tb-clockwrap { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .tb-date   { font: 400 9px/1 var(--mono); letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
+  @keyframes tb-glitch {
+    0%,100% { text-shadow: 0 0 14px var(--glow-soft); transform: translateX(0); }
+    20%     { text-shadow: -2px 0 var(--red), 2px 0 var(--accent); transform: translateX(1px); }
+    55%     { text-shadow: 2px 0 var(--orange), -2px 0 var(--accent); transform: translateX(-1px); }
+    80%     { text-shadow: -1px 0 var(--accent); transform: translateX(0); }
+  }
 
   /* ── Akku (Handy-Stil: Gehäuse + Füllbalken + Prozent innen + Blitz beim Laden) ── */
   .bat       { display: inline-flex; align-items: center; }
@@ -176,7 +206,11 @@
 
   /* ── KPI cards ── */
   .kpi-card { padding: clamp(9px, 1.5vh, 13px) clamp(11px, 1.6vw, 15px); justify-content: flex-start; gap: 5px; }
-  .kpi-label { font: 600 10px/1 var(--mono); letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-2); }
+  .kpi-label { font: 600 10px/1 var(--mono); letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-2); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .kpi-trend { font: 400 11px/1 var(--mono); letter-spacing: 0; color: transparent; transition: color .3s ease; }
+  .kpi-trend.up   { color: var(--accent); }
+  .kpi-trend.up.hot { color: var(--red); }
+  .kpi-trend.down { color: color-mix(in srgb, var(--green) 70%, var(--muted)); }
   .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1.1 var(--display); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; text-shadow: 0 0 16px var(--glow-soft); }
   .kpi-sub   { font: 400 10px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
   .kpi-spark { width: 100%; flex: 1 1 auto; min-height: 20px; align-self: stretch; display: block; }
@@ -252,6 +286,7 @@
   /* ── Weather ── */
   #weather-card { flex: 0 0 auto; }
   .weather-main { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .weather-icon { font-size: clamp(19px, 3.2vh, 27px); line-height: 1; }
   .weather-temp { font: 700 clamp(22px, 4vh, 34px)/1 var(--mono); color: var(--accent); }
   .weather-desc { font: 400 11px/1.4 var(--sans); color: var(--text-2); }
   .w-muted { color: var(--muted); }
@@ -436,6 +471,7 @@
 </style>
 </head>
 <body>
+<div id="fx-sweep"></div>
 <div id="app">
 
   <!-- TOPBAR -->
@@ -444,29 +480,30 @@
     <span class="tb-online"><span class="tb-dot"></span>ONLINE</span>
     <span class="tb-spacer"></span>
     <span class="tb-host"><span id="tb-hostname">—</span><span class="tb-up" id="tb-uptime"></span></span>
+    <span class="tb-sys" id="tb-sys" hidden><span class="tb-temp" id="tb-temp"></span><span class="tb-load" id="tb-load"></span></span>
     <span class="bat" id="bat-pill" hidden><span class="bat-body"><span class="bat-fill" id="bat-fill"></span><span class="bat-bolt" id="bat-bolt" hidden>⚡</span><span class="bat-label" id="bat-pct">—%</span></span></span>
-    <span class="tb-clock" id="clock">--:--:--</span>
+    <span class="tb-clockwrap"><span class="tb-clock" id="clock">--:--:--</span><span class="tb-date" id="tb-date"></span></span>
   </header>
 
   <!-- KPI ROW -->
   <div id="kpi">
     <div class="card kpi-card">
-      <div class="kpi-label">CPU</div>
+      <div class="kpi-label">CPU<span class="kpi-trend" id="kpi-cpu-trend"></span></div>
       <div class="kpi-value" id="kpi-cpu-val">—%</div>
       <canvas class="kpi-spark" id="kpi-cpu-spark"></canvas>
     </div>
     <div class="card kpi-card">
-      <div class="kpi-label">RAM</div>
+      <div class="kpi-label">RAM<span class="kpi-trend" id="kpi-ram-trend"></span></div>
       <div class="kpi-value" id="kpi-ram-val">—%</div>
       <canvas class="kpi-spark" id="kpi-ram-spark"></canvas>
     </div>
     <div class="card kpi-card">
-      <div class="kpi-label">Speicher</div>
+      <div class="kpi-label">Speicher<span class="kpi-trend" id="kpi-store-trend"></span></div>
       <div class="kpi-value" id="kpi-store-val">—</div>
       <canvas class="kpi-spark" id="kpi-store-spark"></canvas>
     </div>
     <div class="card kpi-card">
-      <div class="kpi-label">Netzwerk</div>
+      <div class="kpi-label">Netzwerk<span class="kpi-trend" id="kpi-net-trend"></span></div>
       <div class="kpi-value" id="kpi-net-val">↓ —</div>
       <div class="kpi-sub" id="kpi-net-sub">↑ —</div>
       <canvas class="kpi-spark" id="kpi-net-spark"></canvas>
@@ -844,8 +881,12 @@
 
   // ── Node refs ───────────────────────────────────────────────
   const clockEl     = $('clock');
+  const dateEl      = $('tb-date');
   const hostEl      = $('tb-hostname');
   const upEl        = $('tb-uptime');
+  const tbSys       = $('tb-sys');
+  const tbTemp      = $('tb-temp');
+  const tbLoad      = $('tb-load');
   const kpiCpuVal   = $('kpi-cpu-val');
   const kpiRamVal   = $('kpi-ram-val');
   const kpiStoreVal = $('kpi-store-val');
@@ -942,6 +983,35 @@
     }
   }
 
+  // ── KPI-Trendpfeile (▲/▼ ggü. ~10s zurück) ─────────────────
+  const kpiTrendEls = {
+    cpu: $('kpi-cpu-trend'), ram: $('kpi-ram-trend'),
+    store: $('kpi-store-trend'), net: $('kpi-net-trend'),
+  };
+  function setTrend(el, dir, hot) {
+    if (!el) return;
+    const glyph = dir > 0 ? '▲' : dir < 0 ? '▼' : '';
+    const cls = 'kpi-trend' + (dir > 0 ? ' up' + (hot ? ' hot' : '') : dir < 0 ? ' down' : '');
+    if (el.textContent !== glyph) el.textContent = glyph;
+    if (el.className !== cls) el.className = cls;
+  }
+  function updateKpiTrends() {
+    const back = (h, n) => (h.length > n ? h[h.length - 1] - h[h.length - 1 - n] : 0);
+    const cpuN = cpuHist[cpuHist.length - 1] || 0, ramN = ramHist[ramHist.length - 1] || 0;
+    setTrend(kpiTrendEls.cpu, Math.abs(back(cpuHist, 4)) >= 5 ? Math.sign(back(cpuHist, 4)) : 0, cpuN >= 80);
+    setTrend(kpiTrendEls.ram, Math.abs(back(ramHist, 4)) >= 4 ? Math.sign(back(ramHist, 4)) : 0, ramN >= 85);
+    setTrend(kpiTrendEls.store, Math.abs(back(storeHist, 2)) >= 1 ? Math.sign(back(storeHist, 2)) : 0, false);
+    const n = netHist.length;
+    if (n > 4) {
+      const last = netHist[n - 1];
+      const prev = (netHist[n - 2] + netHist[n - 3] + netHist[n - 4]) / 3;
+      let d = 0;
+      if (prev > 12) d = last > prev * 1.6 ? 1 : last < prev * 0.55 ? -1 : 0;
+      else if (last > 96) d = 1;
+      setTrend(kpiTrendEls.net, d, false);
+    }
+  }
+
   // ── Shared data for alert computation ───────────────────────
   let lastStats = null, lastServices = null, lastBattery = null;
   let lastLsblkRaw = null, lastLsblkData = null, lastDiskIo = null;
@@ -1020,6 +1090,15 @@
       setText(kpiCpuVal, cpu + '%', true);
       setText(kpiRamVal, ram + '%', true);
       setText(upEl, '· up ' + fmtUptime(d.uptime));
+      // Temp + Load in die Topbar (Daten kamen schon aus dem Call, lagen nur brach)
+      if (d.tempC != null) {
+        setText(tbTemp, d.tempC + '°');
+        const tc = 'tb-temp' + (d.tempC >= 85 ? ' crit' : d.tempC >= 75 ? ' warn' : '');
+        if (tbTemp.className !== tc) tbTemp.className = tc;
+      } else { setText(tbTemp, ''); }
+      if (d.load && d.load.length) setText(tbLoad, d.load[0].toFixed(2));
+      if (tbSys.hidden) tbSys.hidden = false;
+      updateKpiTrends();
       renderCores((d.cpu && d.cpu.cores) || []);
       sysSampleTs = performance.now();
       kickGlide();                               // glide drives the CPU + RAM KPI sparks
@@ -1077,6 +1156,7 @@
       setText(netbTx, fmtRate(d.tx || 0), true);
       netSampleTs = performance.now();
       kickGlide();                               // glide drives the Netzwerk KPI spark
+      updateKpiTrends();
     } finally {
       netBusy = false;
     }
@@ -1317,20 +1397,36 @@
   }
 
   // ── Weather ──────────────────────────────────────────────
-  let wBuilt = false, wStatus, wMain, wTemp, wDesc, wFeels;
+  let wBuilt = false, wStatus, wMain, wIcon, wTemp, wDesc, wFeels;
   const wItems = {};
+
+  // WWO-Wettercode → Emoji (wttr.in j1)
+  function weatherEmoji(code) {
+    const c = parseInt(code, 10);
+    if (!Number.isFinite(c)) return '·';
+    if (c === 113) return '☀️';
+    if (c === 116) return '⛅';
+    if (c === 119 || c === 122) return '☁️';
+    if (c === 143 || c === 248 || c === 260) return '🌫️';
+    if (c === 200 || (c >= 386 && c <= 395)) return '⛈️';
+    if ((c >= 179 && c <= 230) || (c >= 317 && c <= 377) || c === 311 || c === 314) return '❄️';
+    if (c === 176 || c === 263 || c === 266 || c === 293 || c === 296 || c === 353) return '🌦️';
+    if (c === 299 || c === 302 || c === 305 || c === 308 || c === 356 || c === 359) return '🌧️';
+    return '🌥️';
+  }
 
   function buildWeather() {
     const body = $('weather-body');
     body.textContent = '';
     wStatus = document.createElement('div'); wStatus.className = 'w-status'; wStatus.textContent = 'Lade…';
     wMain = document.createElement('div'); wMain.className = 'weather-main'; wMain.hidden = true;
+    wIcon = document.createElement('span'); wIcon.className = 'weather-icon'; wIcon.textContent = '·';
     wTemp = document.createElement('div'); wTemp.className = 'weather-temp'; wTemp.textContent = '—°';
     const descWrap = document.createElement('div'); descWrap.className = 'weather-desc';
     wDesc = document.createElement('span');
     wFeels = document.createElement('span'); wFeels.className = 'w-muted';
     descWrap.append(wDesc, document.createElement('br'), wFeels);
-    wMain.append(wTemp, descWrap);
+    wMain.append(wIcon, wTemp, descWrap);
     const grid = document.createElement('div'); grid.className = 'weather-details'; grid.hidden = true;
     [['hum', 'Luftfeuchte'], ['wind', 'Wind'], ['vis', 'Sicht'], ['src', 'Quelle']].forEach(([k, label]) => {
       const it = document.createElement('div'); it.className = 'weather-item';
@@ -1366,6 +1462,7 @@
       wMain.hidden = false;
       wItems.grid.hidden = false;
       setText(wTemp, (cur.temp_C != null ? cur.temp_C : '—') + '°');
+      setText(wIcon, weatherEmoji(cur.weatherCode));
       setText(wDesc, (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '');
       setText(wFeels, 'Gefühlt ' + (cur.FeelsLikeC != null ? cur.FeelsLikeC : '—') + '°');
       setText(wItems.hum, (cur.humidity != null ? cur.humidity : '—') + '%');
@@ -1599,8 +1696,26 @@
     .catch(() => null);
 
   // ── Polling (starts immediately, independent of boot) ────
+  const DOW = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  function tickClock() {
+    const d = new Date();
+    setText(clockEl, nowStr());
+    if (dateEl) setText(dateEl, DOW[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  // einmaliger Logo-Glitch + Scanline-Sweep als Spielerei — je ein One-Shot,
+  // zwischendurch keinerlei Animationskosten.
+  function pulseLogo() {
+    const l = document.querySelector('.tb-logo');
+    if (!l) return;
+    l.classList.remove('glitch'); void l.offsetWidth; l.classList.add('glitch');
+  }
+  function sweep() {
+    const s = $('fx-sweep');
+    if (!s) return;
+    s.classList.remove('run'); void s.offsetWidth; s.classList.add('run');
+  }
   function startPolling() {
-    every(() => setText(clockEl, nowStr()), 1000);
+    every(tickClock, 1000);
     if (!api) return;
     every(tickSystem, SYS_MS);
     every(tickNet, NET_MS);
@@ -1611,6 +1726,8 @@
     every(tickBattery, 10000);            // udev-Event (battery-changed) triggert zusätzlich sofort
     every(tickWeather, 900000);
     every(tickRss, 1200000);
+    timers.push(setInterval(pulseLogo, 47000));
+    timers.push(setInterval(sweep, 23000));
   }
 
   // ── Boot / welcome sequence (~2.6s) ─────────────────────
