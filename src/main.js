@@ -671,3 +671,51 @@ ipcMain.on('dashboard-close', () => {
   killExternalTerminal();
   app.quit();
 });
+
+// ── App-Shortcuts (Whitelist) ──────────────────────────────────
+// Der Renderer schickt nur einen der Keys unten. Pro Key eine Kandidatenliste
+// [cmd, ...args] — der Reihe nach probieren, bei ENOENT den nächsten. Immer als
+// Arg-Array (kein Shell-String → keine Injection), detached + unref (fire&forget).
+const LAUNCH_CANDIDATES = {
+  chromium: [['chromium'], ['chromium-browser'], ['chromium-freeworld'],
+             ['flatpak', 'run', 'org.chromium.Chromium'], ['google-chrome-stable'], ['google-chrome']],
+  terminal: [['konsole'], ['alacritty'], ['kitty'], ['wezterm'], ['gnome-terminal'], ['xterm', '-e', 'fish']],
+  settings: [['systemsettings'], ['systemsettings5'], ['kcmshell6'], ['kcmshell5']],
+  dolphin:  [['dolphin'], ['pcmanfm-qt'], ['nautilus'], ['xdg-open', os.homedir()]],
+  discord:  [['discord'], ['Discord'], ['vesktop'], ['flatpak', 'run', 'com.discordapp.Discord']],
+  htop:     [['konsole', '-e', 'htop'], ['alacritty', '-e', 'htop'], ['kitty', 'htop'],
+             ['gnome-terminal', '--', 'htop'], ['xterm', '-e', 'htop']],
+};
+
+function tryLaunch(candidates, i) {
+  i = i || 0;
+  if (i >= candidates.length) { log('launch-app: kein passendes Programm gefunden'); return; }
+  const [cmd, ...args] = candidates[i];
+  let settled = false;
+  let child;
+  try {
+    child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+  } catch (err) {
+    return tryLaunch(candidates, i + 1);
+  }
+  child.on('error', (err) => {
+    if (settled) return;
+    settled = true;
+    if (err && err.code === 'ENOENT') tryLaunch(candidates, i + 1);
+    else log(`launch-app: ${cmd} Fehler: ${err && err.message}`);
+  });
+  child.on('spawn', () => {
+    if (settled) return;
+    settled = true;
+    log(`launch-app: ${[cmd].concat(args).join(' ')}`);
+  });
+  child.unref();
+}
+
+ipcMain.on('launch-app', (_event, key) => {
+  if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(LAUNCH_CANDIDATES, key)) {
+    log(`launch-app: unbekannter Key "${key}"`);
+    return;
+  }
+  tryLaunch(LAUNCH_CANDIDATES[key], 0);
+});
