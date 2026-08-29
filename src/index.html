@@ -507,7 +507,7 @@
     if (typeof s === 'number') return s;
     const m = String(s).trim().replace(',', '.').match(/^([\d.]+)\s*([KMGTP])?i?B?$/i);
     if (!m) return 0;
-    const mult = { '': 1, K: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15 }[(m[2] || '').toUpperCase()] || 1;
+    const mult = { '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4, P: 1024 ** 5 }[(m[2] || '').toUpperCase()] || 1;
     return parseFloat(m[1]) * mult;
   }
 
@@ -622,6 +622,9 @@
     return 1 - (1 - f) * (1 - f);               // ease-out: most travel up front
   };
   const offPx = (frac, w) => frac * w / (GRAPH_MAX - 1);
+  // net y-scale: trailing max over the last ~20 samples, floored at 64 — an old
+  // spike decays out of the window instead of pinning the scale forever.
+  const netVmax = (h) => Math.max.apply(null, [64].concat(h.slice(-20)));
 
   // glow (canvas shadowBlur) is a software-rasterised gaussian — cheap once per
   // sample, pricey mid-scroll on this GPU-less box. So: glow only on the settled frame.
@@ -639,7 +642,7 @@
     if (!s.w) return;
     const settled = frac == null || frac >= 1;
     gridlines(netbCv.ctx, s.w, s.h);
-    const vmax = Math.max.apply(null, [64].concat(netHist));
+    const vmax = netVmax(netHist);
     plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
   }
   function sparkPct(cv, hist, color) {
@@ -650,7 +653,7 @@
   function sparkNet(cv, hist) {
     const s = cv.prep();
     if (!s.w) return;
-    const vmax = Math.max.apply(null, [64].concat(hist));
+    const vmax = netVmax(hist);
     plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.85)', true, 0, false);
   }
   function drawKpiSparks() {                    // sparks are tiny — redraw on tick, no scroll
@@ -841,66 +844,84 @@
   }
 
   // ── System stats tick (one call fans out) ──────────────────
+  let systemBusy = false;
   async function tickSystem() {
-    if (!api) return;
-    let d;
-    try { d = await api.getSystemStats(); } catch (e) { return; }
-    if (!d) return;
-    lastStats = d;
-    const cpu = (d.cpu && d.cpu.avg) || 0;
-    const ram = (d.ram && d.ram.percent) || 0;
-    remember(cpuHist, cpu);
-    remember(ramHist, ram);
-    setText(kpiCpuVal, cpu + '%', true);
-    setText(kpiRamVal, ram + '%', true);
-    setText(upEl, '· up ' + fmtUptime(d.uptime));
-    renderCores((d.cpu && d.cpu.cores) || []);
-    sysSampleTs = performance.now();
-    drawKpiSparks();
-    kickGlide();
-    cpuSustain = cpu >= 92 ? cpuSustain + 1 : 0;
-    recomputeAlerts();
+    if (!api || systemBusy) return;
+    systemBusy = true;
+    try {
+      let d;
+      try { d = await api.getSystemStats(); } catch (e) { return; }
+      if (!d) return;
+      lastStats = d;
+      const cpu = (d.cpu && d.cpu.avg) || 0;
+      const ram = (d.ram && d.ram.percent) || 0;
+      remember(cpuHist, cpu);
+      remember(ramHist, ram);
+      setText(kpiCpuVal, cpu + '%', true);
+      setText(kpiRamVal, ram + '%', true);
+      setText(upEl, '· up ' + fmtUptime(d.uptime));
+      renderCores((d.cpu && d.cpu.cores) || []);
+      sysSampleTs = performance.now();
+      drawKpiSparks();
+      kickGlide();
+      cpuSustain = cpu >= 92 ? cpuSustain + 1 : 0;
+      recomputeAlerts();
+    } finally {
+      systemBusy = false;
+    }
   }
 
   // ── Services tick ─────────────────────────────────────────
+  let servicesBusy = false;
   async function tickServices() {
-    if (!api) return;
-    let d;
-    try { d = await api.getServices(); } catch (e) { return; }
-    if (!d) return;
-    lastServices = d;
-    setText(svcRunning, 'running ' + (d.runningCount != null ? d.runningCount : '—'));
-    const fc = d.failedCount || 0;
-    setText(svcFailed, 'failed ' + fc, true);
-    const cls = 'svc-val ' + (fc > 0 ? 'is-red' : 'is-green');
-    if (svcFailed.className !== cls) svcFailed.className = cls;
-    const failed = d.failed || [];
-    for (let i = 0; i < svcRows.length; i++) {
-      if (i < Math.min(failed.length, 5)) {
-        svcRows[i].el.hidden = false;
-        setText(svcRows[i].name, failed[i].name || '');
-        setText(svcRows[i].desc, failed[i].desc || '');
-      } else {
-        svcRows[i].el.hidden = true;
+    if (!api || servicesBusy) return;
+    servicesBusy = true;
+    try {
+      let d;
+      try { d = await api.getServices(); } catch (e) { return; }
+      if (!d) return;
+      lastServices = d;
+      setText(svcRunning, 'running ' + (d.runningCount != null ? d.runningCount : '—'));
+      const fc = d.failedCount || 0;
+      setText(svcFailed, 'failed ' + fc, true);
+      const cls = 'svc-val ' + (fc > 0 ? 'is-red' : 'is-green');
+      if (svcFailed.className !== cls) svcFailed.className = cls;
+      const failed = d.failed || [];
+      for (let i = 0; i < svcRows.length; i++) {
+        if (i < Math.min(failed.length, 5)) {
+          svcRows[i].el.hidden = false;
+          setText(svcRows[i].name, failed[i].name || '');
+          setText(svcRows[i].desc, failed[i].desc || '');
+        } else {
+          svcRows[i].el.hidden = true;
+        }
       }
+      recomputeAlerts();
+    } finally {
+      servicesBusy = false;
     }
-    recomputeAlerts();
   }
 
   // ── Network tick ──────────────────────────────────────────
+  let netBusy = false;
   async function tickNet() {
-    if (!api) return;
-    let d;
-    try { d = await api.getNet(); } catch (e) { return; }
-    if (!d) return;
-    remember(netHist, d.rx || 0);
-    setText(kpiNetVal, '↓ ' + fmtRate(d.rx || 0), true);
-    setText(kpiNetSub, '↑ ' + fmtRate(d.tx || 0));
-    setText(netbRx, fmtRate(d.rx || 0), true);
-    setText(netbTx, fmtRate(d.tx || 0), true);
-    sparkNet(kpiNetCv, netHist);
-    netSampleTs = performance.now();
-    kickGlide();
+    if (!api || netBusy) return;
+    netBusy = true;
+    try {
+      let d;
+      try { d = await api.getNet(); } catch (e) { return; }
+      if (!d) return;
+      remember(netHist, d.rx || 0);
+      setText(kpiNetVal, '↓ ' + fmtRate(d.rx || 0), true);
+      setText(kpiNetSub, '↑ ' + fmtRate(d.tx || 0));
+      setText(netbRx, fmtRate(d.rx || 0), true);
+      setText(netbTx, fmtRate(d.tx || 0), true);
+      sparkNet(kpiNetCv, netHist);
+      netSampleTs = performance.now();
+      kickGlide();
+    } finally {
+      netBusy = false;
+    }
   }
 
   // ── lsblk + disk I/O ──────────────────────────────────────
@@ -1009,19 +1030,25 @@
     });
   }
 
+  let lsblkBusy = false;
   async function tickLsblk() {
-    if (!api) return;
-    let raw;
-    try { raw = await api.getLsblk(); } catch (e) { return; }
-    const spin = $('lsblk-spin');
-    if (spin) spin.hidden = true;
-    if (raw === lastLsblkRaw) return;      // unchanged — do not re-render tree
-    lastLsblkRaw = raw;
-    try { lastLsblkData = JSON.parse(raw); } catch (e) { lastLsblkData = null; }
-    renderLsblkTree();
-    updateStorageKpi();
-    rebuildDiskIoRows();
-    recomputeAlerts();
+    if (!api || lsblkBusy) return;
+    lsblkBusy = true;
+    try {
+      let raw;
+      try { raw = await api.getLsblk(); } catch (e) { return; }
+      if (raw === lastLsblkRaw) return;      // unchanged — do not re-render tree
+      lastLsblkRaw = raw;
+      try { lastLsblkData = JSON.parse(raw); } catch (e) { lastLsblkData = null; }
+      renderLsblkTree();
+      updateStorageKpi();
+      rebuildDiskIoRows();
+      recomputeAlerts();
+    } finally {
+      const spin = $('lsblk-spin');
+      if (spin) spin.hidden = true;         // always clear the spinner, even on fetch/parse failure
+      lsblkBusy = false;
+    }
   }
 
   async function tickDiskIo() {
@@ -1074,79 +1101,91 @@
     wBuilt = true;
   }
 
+  let weatherBusy = false;
   async function tickWeather() {
-    if (!api) return;
-    if (!wBuilt) buildWeather();
-    let d;
-    try { d = await api.getWeather('Schwaebisch Hall'); } catch (e) { d = null; }
-    let cur = null;
-    if (d) { try { cur = d.current_condition && d.current_condition[0]; } catch (e) { cur = null; } }
-    if (!cur) {
-      wStatus.hidden = false;
-      wStatus.textContent = d ? 'Parse-Fehler' : 'Nicht verfügbar';
-      wMain.hidden = true;
-      wItems.grid.hidden = true;
-      return;
+    if (!api || weatherBusy) return;
+    weatherBusy = true;
+    try {
+      if (!wBuilt) buildWeather();
+      let d;
+      try { d = await api.getWeather('Schwaebisch Hall'); } catch (e) { d = null; }
+      let cur = null;
+      if (d) { try { cur = d.current_condition && d.current_condition[0]; } catch (e) { cur = null; } }
+      if (!cur) {
+        wStatus.hidden = false;
+        wStatus.textContent = d ? 'Parse-Fehler' : 'Nicht verfügbar';
+        wMain.hidden = true;
+        wItems.grid.hidden = true;
+        return;
+      }
+      wStatus.hidden = true;
+      wMain.hidden = false;
+      wItems.grid.hidden = false;
+      setText(wTemp, (cur.temp_C != null ? cur.temp_C : '—') + '°');
+      setText(wDesc, (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '');
+      setText(wFeels, 'Gefühlt ' + (cur.FeelsLikeC != null ? cur.FeelsLikeC : '—') + '°');
+      setText(wItems.hum, (cur.humidity != null ? cur.humidity : '—') + '%');
+      setText(wItems.wind, (cur.windspeedKmph != null ? cur.windspeedKmph : '—') + ' km/h');
+      setText(wItems.vis, (cur.visibility != null ? cur.visibility : '—') + ' km');
+      setText(wItems.src, 'wttr.in');
+    } finally {
+      weatherBusy = false;
     }
-    wStatus.hidden = true;
-    wMain.hidden = false;
-    wItems.grid.hidden = false;
-    setText(wTemp, (cur.temp_C != null ? cur.temp_C : '—') + '°');
-    setText(wDesc, (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '');
-    setText(wFeels, 'Gefühlt ' + (cur.FeelsLikeC != null ? cur.FeelsLikeC : '—') + '°');
-    setText(wItems.hum, (cur.humidity != null ? cur.humidity : '—') + '%');
-    setText(wItems.wind, (cur.windspeedKmph != null ? cur.windspeedKmph : '—') + ' km/h');
-    setText(wItems.vis, (cur.visibility != null ? cur.visibility : '—') + ' km');
-    setText(wItems.src, 'wttr.in');
   }
 
   // ── RSS ──────────────────────────────────────────────────
   let rssKey = null;
+  let rssBusy = false;
   async function tickRss() {
-    if (!api) return;
-    const el = $('rss-list');
-    let xml;
-    try { xml = await api.getRss('https://www.heise.de/rss/heise-atom.xml'); } catch (e) { xml = null; }
-    const showEmpty = (key, msg) => {
-      if (rssKey === key) return;
+    if (!api || rssBusy) return;
+    rssBusy = true;
+    try {
+      const el = $('rss-list');
+      let xml;
+      try { xml = await api.getRss('https://www.heise.de/rss/heise-atom.xml'); } catch (e) { xml = null; }
+      const showEmpty = (key, msg) => {
+        if (rssKey === key) return;
+        rssKey = key;
+        el.textContent = '';
+        const d = document.createElement('div');
+        d.className = 'rss-empty';
+        d.textContent = msg;
+        el.append(d);
+      };
+      if (!xml) return showEmpty('__err', 'Nicht verfügbar');
+      let doc;
+      try { doc = new DOMParser().parseFromString(xml, 'application/xml'); } catch (e) { return; }
+      const items = Array.prototype.slice.call(doc.querySelectorAll('item,entry'), 0, 14);
+      if (!items.length) return showEmpty('__empty', 'Keine Einträge');
+      const first = items[0];
+      const key = (first.querySelector('title') && first.querySelector('title').textContent || '') + '|' +
+        (first.querySelector('pubDate,published,updated') && first.querySelector('pubDate,published,updated').textContent || '') + '|' +
+        items.length;
+      if (key === rssKey) return;
       rssKey = key;
       el.textContent = '';
-      const d = document.createElement('div');
-      d.className = 'rss-empty';
-      d.textContent = msg;
-      el.append(d);
-    };
-    if (!xml) return showEmpty('__err', 'Nicht verfügbar');
-    let doc;
-    try { doc = new DOMParser().parseFromString(xml, 'application/xml'); } catch (e) { return; }
-    const items = Array.prototype.slice.call(doc.querySelectorAll('item,entry'), 0, 14);
-    if (!items.length) return showEmpty('__empty', 'Keine Einträge');
-    const first = items[0];
-    const key = (first.querySelector('title') && first.querySelector('title').textContent || '') + '|' +
-      (first.querySelector('pubDate,published,updated') && first.querySelector('pubDate,published,updated').textContent || '') + '|' +
-      items.length;
-    if (key === rssKey) return;
-    rssKey = key;
-    el.textContent = '';
-    items.forEach((it) => {
-      const title = (it.querySelector('title') && it.querySelector('title').textContent || '(kein Titel)').trim();
-      const dateRaw = it.querySelector('pubDate,published,updated') && it.querySelector('pubDate,published,updated').textContent || '';
-      const linkEl = it.querySelector('link');
-      let link = (linkEl && (linkEl.getAttribute('href') || linkEl.textContent) || '').trim();
-      const row = document.createElement('div');
-      row.className = 'rss-item';
-      const t = document.createElement('div'); t.className = 'rss-title'; t.textContent = title;
-      const dd = document.createElement('div'); dd.className = 'rss-date';
-      dd.textContent = dateRaw
-        ? new Date(dateRaw).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-        : '';
-      row.append(t, dd);
-      if (/^https?:\/\//i.test(link)) {
-        row.classList.add('is-link');
-        row.addEventListener('click', () => window.open(link, '_blank', 'noopener'));
-      }
-      el.append(row);
-    });
+      items.forEach((it) => {
+        const title = (it.querySelector('title') && it.querySelector('title').textContent || '(kein Titel)').trim();
+        const dateRaw = it.querySelector('pubDate,published,updated') && it.querySelector('pubDate,published,updated').textContent || '';
+        const linkEl = it.querySelector('link');
+        let link = (linkEl && (linkEl.getAttribute('href') || linkEl.textContent) || '').trim();
+        const row = document.createElement('div');
+        row.className = 'rss-item';
+        const t = document.createElement('div'); t.className = 'rss-title'; t.textContent = title;
+        const dd = document.createElement('div'); dd.className = 'rss-date';
+        dd.textContent = dateRaw
+          ? new Date(dateRaw).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        row.append(t, dd);
+        if (/^https?:\/\//i.test(link)) {
+          row.classList.add('is-link');
+          row.addEventListener('click', () => window.open(link, '_blank', 'noopener'));
+        }
+        el.append(row);
+      });
+    } finally {
+      rssBusy = false;
+    }
   }
 
   // ── Battery (topbar pill) ────────────────────────────────
@@ -1172,20 +1211,27 @@
       const h = Math.floor(d.timeLeft / 3600), m = Math.floor((d.timeLeft % 3600) / 60);
       parts.push((h > 0 ? h + 'h ' : '') + m + 'm');
     }
-    if (d.watts) parts.push(d.watts.toFixed(1) + ' W');
+    if (typeof d.watts === 'number' && isFinite(d.watts)) parts.push(d.watts.toFixed(1) + ' W');
     batPill.title = parts.join(' · ');
     recomputeAlerts();
   }
 
   // ── Notes ────────────────────────────────────────────────
+  let flushNotes = () => {};
   (function initNotes() {
     const t = $('notes-input');
     if (!api) return;
     api.loadNotes().then((v) => { if (typeof v === 'string') t.value = v; }).catch(() => {});
-    let st;
+    let st = null;
+    flushNotes = () => {                    // push a pending debounced save through now
+      if (st == null) return;
+      clearTimeout(st);
+      st = null;
+      api.saveNotes(t.value);
+    };
     t.addEventListener('input', () => {
       clearTimeout(st);
-      st = setTimeout(() => api.saveNotes(t.value), 1500);
+      st = setTimeout(() => { st = null; api.saveNotes(t.value); }, 1500);
     });
   })();
 
@@ -1203,7 +1249,7 @@
     spawnDashboardTerminal = () => { if (api && api.spawnTerminal) api.spawnTerminal(getTerminalGeometry()); };
     $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
     $('term-btn-clear').addEventListener('click', () => api.termClear(), true);
-    $('term-btn-close').addEventListener('click', () => api.closeDashboard(), true);
+    $('term-btn-close').addEventListener('click', () => { flushNotes(); api.closeDashboard(); }, true);
   })();
 
   // ── Single resize handler (canvases + terminal geometry) ──
@@ -1215,6 +1261,11 @@
     termT = setTimeout(syncTerminalGeometry, 120);
   });
 
+  // web fonts load async → text metrics + wrapper rect shift after xterm is placed
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => syncTerminalGeometry()).catch(() => {});
+  }
+
   // ── Storage hotplug ──────────────────────────────────────
   let storageUnsub = null;
   if (api && api.onStorageChanged) {
@@ -1223,6 +1274,7 @@
 
   // ── Teardown ─────────────────────────────────────────────
   window.addEventListener('beforeunload', () => {
+    flushNotes();
     glideOn = false;
     timers.forEach(clearInterval);
     try { if (storageUnsub) storageUnsub(); } catch (e) {}
@@ -1293,6 +1345,7 @@
       try { st = await Promise.race([statsPromise, wait(350).then(() => null)]); } catch (e) {}
 
       const cores = st && st.cpu && st.cpu.cores ? st.cpu.cores.length : 0;
+      // st.ram.total is MiB (main.js readRam: bytes / 1024 / 1024) → /1024 gives GiB
       const gb = st && st.ram && st.ram.total ? Math.round(st.ram.total / 1024) : 0;
       const lines = [
         ['host',      (host || 'local system').toUpperCase()],
@@ -1326,7 +1379,8 @@
 
   // ── Go ──────────────────────────────────────────────────
   startPolling();
-  runBoot().then(spawnDashboardTerminal).catch(spawnDashboardTerminal);
+  const spawnTerminalAndSync = () => { spawnDashboardTerminal(); syncTerminalGeometry(); };
+  runBoot().then(spawnTerminalAndSync).catch(spawnTerminalAndSync);
 })();
 </script>
 </body>

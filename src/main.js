@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
-const { exec, execSync, spawn } = require('child_process');
+const { exec, execFile, execSync, spawn } = require('child_process');
 const os   = require('os');
 const fs   = require('fs');
 const path = require('path');
@@ -132,12 +132,26 @@ function createWindow() {
   log('Dashboard gestartet');
 }
 
-app.whenReady().then(() => {
-  rotateLogIfLarge();
-  killOldXterm();
-  createWindow();
-  startStorageMonitor();
-});
+// Nur eine Instanz — zweiter Start fokussiert das vorhandene Fenster
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    rotateLogIfLarge();
+    killOldXterm();
+    createWindow();
+    startStorageMonitor();
+  });
+}
 
 app.on('window-all-closed', () => {
   stopStorageMonitor();
@@ -357,13 +371,16 @@ ipcMain.handle('get-disk-io', async () => new Promise((resolve) => {
 
 // ── IPC: Weather ───────────────────────────────────────────────
 ipcMain.handle('get-weather', async (_,city) => new Promise((resolve) => {
-  exec(`curl -s --max-time 5 "https://wttr.in/${encodeURIComponent(city)}?format=j1" 2>/dev/null`,
+  const u = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
+  execFile('curl', ['-s', '--max-time', '5', '--', u], { maxBuffer: 1<<20 },
     (err,out) => { try { resolve(JSON.parse(out)); } catch { resolve(null); } });
 }));
 
 // ── IPC: RSS ───────────────────────────────────────────────────
 ipcMain.handle('get-rss', async (_,url) => new Promise((resolve) => {
-  exec(`curl -s --max-time 8 "${url}" 2>/dev/null`, (err,out) => resolve(out||''));
+  if (!/^https?:\/\//i.test(url)) return resolve('');           // nur http(s), kein Shell-Kram
+  execFile('curl', ['-s', '--max-time', '8', '--', url], { maxBuffer: 1<<20 },
+    (err,out) => resolve(out||''));
 }));
 
 // ── IPC: Notes ─────────────────────────────────────────────────
