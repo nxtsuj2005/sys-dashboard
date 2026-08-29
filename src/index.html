@@ -166,15 +166,15 @@
   /* static diagonal hatch in the empty channel — the fill's gradient covers it (HUD "conduit" look) */
   .bar-track { height: 7px; border-radius: 0; border: 1px solid var(--border); overflow: hidden;
     background: var(--panel) repeating-linear-gradient(-45deg, transparent 0 5px, rgba(154,167,180,.07) 5px 7px); }
-  /* long ease so a core spike glides in instead of snapping */
-  /* scaleX (not width) so the ease never triggers layout — cheap on a GPU-less box */
+  /* scaleX (not width) so the ease never triggers layout — cheap on a GPU-less box.
+     die Kernbalken werden pro Frame per JS zum Ziel-scaleX gelerpt (siehe lerpCores),
+     daher KEINE transform-transition mehr — nur die Farbe (warn/danger) blendet weich. */
   .bar-fill  { height: 100%; width: 100%; border-radius: 0;
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, var(--bg)), var(--accent));
-    box-shadow: 0 0 8px var(--glow);
     transform-origin: left center; transform: scaleX(0);
-    transition: transform .55s cubic-bezier(.25,.8,.35,1), background .6s ease, box-shadow .6s ease; }
-  .bar-fill.warn   { background: linear-gradient(90deg, color-mix(in srgb, var(--orange) 60%, var(--bg)), var(--orange)); box-shadow: 0 0 8px color-mix(in srgb, var(--orange) 55%, transparent); }
-  .bar-fill.danger { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 60%, var(--bg)), var(--red)); box-shadow: 0 0 8px color-mix(in srgb, var(--red) 55%, transparent); }
+    transition: background .3s ease; }
+  .bar-fill.warn   { background: linear-gradient(90deg, color-mix(in srgb, var(--orange) 60%, var(--bg)), var(--orange)); }
+  .bar-fill.danger { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 60%, var(--bg)), var(--red)); }
 
   /* ── System status card ── */
   .status-body { overflow-y: auto; gap: 0; }
@@ -626,11 +626,10 @@
   }
 
   // xOff (px) shifts the whole polyline left — a fraction of one step, fed by the
-  // scroll loop, so the graph flows instead of jumping per sample.
-  // `hq` (high quality: gradient fill + glow) is used only on the settled frame;
-  // mid-scroll frames draw a bare stroke, which the software compositor on this
-  // GPU-less box can actually keep up with.
-  function plotLine(ctx, hist, maxPts, vmax, W, H, color, fill, xOff, glow) {
+  // scroll loop, so the graph flows continuously instead of jumping per sample.
+  // Every frame draws the same way now: gradient fill + stroke, no glow (shadowBlur
+  // is a software-rasterised gaussian and this box has no GPU compositing).
+  function plotLine(ctx, hist, maxPts, vmax, W, H, color, fill, xOff) {
     if (!hist || hist.length < 2 || vmax <= 0) return;
     xOff = xOff || 0;
     const n = hist.length, step = W / (maxPts - 1), pad = 3;
@@ -652,7 +651,6 @@
       ctx.fillStyle = g;
       ctx.fill();
     }
-    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 6; }
     ctx.beginPath();
     pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     if (last.x < W) ctx.lineTo(W, last.y);
@@ -660,7 +658,6 @@
     ctx.lineJoin = 'round';
     ctx.lineWidth = 1.7;
     ctx.stroke();
-    ctx.shadowBlur = 0;
   }
 
   // ── Canvas instances ────────────────────────────────────────
@@ -674,111 +671,91 @@
   const cpuHist = [], ramHist = [], storeHist = [], netHist = [];
 
   // ── Graph scroll ────────────────────────────────────────────
-  // The two full graphs flow left continuously; a new sample slides in from the
-  // right over the sample interval. Driven by a low-rate rAF loop (this box has
-  // no GPU compositing, so CSS-transform animation is far more expensive than a
-  // ~12fps canvas repaint). The loop early-outs the moment nothing is moving.
+  // Every graph flows left continuously; a new sample slides in from the right
+  // over exactly one sample interval, so the hand-off (remember() append + Ts
+  // reset, same synchronous block in each tick) is seamless. Driven by one
+  // always-on rAF loop — the loop no longer early-outs, the graphs run non-stop.
   const SYS_MS = 2500, NET_MS = 2000, STORE_MS = 2500;
-  // Frames/sec for the scroll glide. This box has no GPU compositing, so every
-  // extra redraw costs real CPU — 8fps with an ease-out reads as smooth motion
-  // for ~1px/frame of travel. Bump toward 30 for glassier flow at 2–3× the cost,
-  // or set to 0 to disable the glide entirely (instant per-sample redraw).
-  const GLIDE_FPS = 10;
-  const GLIDE_SPAN = 0.85;                      // finish a touch early → brief idle tail before the next sample
+  // Repaint rate for the continuous scroll. No GPU compositing here, so each
+  // extra redraw costs real CPU — 14fps reads as smooth for ~1px/frame of travel.
+  // Set to 0 to disable the glide entirely (instant per-sample redraw).
+  const GLIDE_FPS = 14;
   let sysSampleTs = performance.now() - SYS_MS;
   let netSampleTs = performance.now() - NET_MS;
   let storeSampleTs = performance.now() - STORE_MS;
+  // linear 0→1 over the interval → constant-velocity scroll, capped at 1 so a
+  // late sample briefly freezes rather than tearing a gap at the right edge.
   const scrollFrac = (ts, span) => {
-    const f = (performance.now() - ts) / (span * GLIDE_SPAN);
-    if (f <= 0) return 0;
-    if (f >= 1) return 1;
-    return 1 - (1 - f) * (1 - f);               // ease-out: most travel up front
+    const f = (performance.now() - ts) / span;
+    return f <= 0 ? 0 : f >= 1 ? 1 : f;
   };
   const offPx = (frac, w) => frac * w / (GRAPH_MAX - 1);
   // net y-scale: trailing max over the last ~20 samples, floored at 64 — an old
   // spike decays out of the window instead of pinning the scale forever.
   const netVmax = (h) => Math.max.apply(null, [64].concat(h.slice(-20)));
 
-  // glow (canvas shadowBlur) is a software-rasterised gaussian — cheap once per
-  // sample, pricey mid-scroll on this GPU-less box. So: glow only on the settled frame.
+  // Every frame renders identically now: dashed gridlines + gradient fill + stroke,
+  // shifted left by offPx(frac). No glow.
   function drawSysGraph(frac) {
     const s = sysGraphCv.prep();
     if (!s.w) return;
-    const settled = frac == null || frac >= 1;
-    const x = offPx(settled ? 1 : frac, s.w);
+    const x = offPx(frac == null ? 1 : frac, s.w);
     gridlines(sysGraphCv.ctx, s.w, s.h);
-    plotLine(sysGraphCv.ctx, ramHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(63,185,80,0.9)', settled, x, settled);
-    plotLine(sysGraphCv.ctx, cpuHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(79,156,249,0.95)', settled, x, settled);
+    plotLine(sysGraphCv.ctx, ramHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(63,185,80,0.9)', true, x);
+    plotLine(sysGraphCv.ctx, cpuHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(79,156,249,0.95)', true, x);
   }
   function drawNetBottom(frac) {
     const s = netbCv.prep();
     if (!s.w) return;
-    const settled = frac == null || frac >= 1;
     gridlines(netbCv.ctx, s.w, s.h);
     const vmax = netVmax(netHist);
-    plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
+    plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.9)', true, offPx(frac == null ? 1 : frac, s.w));
   }
-  // ── KPI mini-graphs — same glide system as the big System-Graph ──
-  // Each spark scrolls a new sample in from the right over its sample interval;
-  // the shared glideFrame loop drives them (frac from scrollFrac). Gradient fill
-  // + glow (shadowBlur) only on the settled frame — mid-scroll is a bare stroke,
-  // the only thing the software compositor on this GPU-less box keeps up with.
+  // ── KPI mini-graphs — same continuous glide as the big System-Graph ──
   // Gridlines are skipped here: at ~20px tall they're just noise.
   function drawGlideSpark(cv, hist, vmax, color, frac) {
     const s = cv.prep();
     if (!s.w || vmax <= 0) return;
-    const settled = frac == null || frac >= 1;
-    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, color, settled, offPx(settled ? 1 : frac, s.w), settled);
+    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, color, true, offPx(frac == null ? 1 : frac, s.w));
   }
   function drawKpiCpu(f)   { drawGlideSpark(kpiCpuCv,   cpuHist,   100,              'rgba(79,156,249,0.9)', f); }
   function drawKpiRam(f)   { drawGlideSpark(kpiRamCv,   ramHist,   100,              'rgba(63,185,80,0.9)',  f); }
   function drawKpiNet(f)   { drawGlideSpark(kpiNetCv,   netHist,   netVmax(netHist), 'rgba(79,156,249,0.9)', f); }
   function drawKpiStore(f) { drawGlideSpark(kpiStoreCv, storeHist, 100,              'rgba(210,153,34,0.8)', f); }
 
-  // ── low-rate scroll loop ────────────────────────────────────
+  // ── continuous scroll loop ──────────────────────────────────
+  // One always-on rAF loop: repaints all six canvases + eases the core bars every
+  // throttle tick, non-stop. Only stops on document.hidden or teardown (glideOn).
   const GLIDE_MIN_DT = GLIDE_FPS > 0 ? 1000 / GLIDE_FPS : Infinity;
   let glideOn = false, glideLast = 0;
-  // Only repaint the canvas group that is actually in motion this frame (plus one
-  // final settled frame each) — a net-only glide never touches the CPU/RAM/store
-  // sparks. Keeps the per-frame cost proportional to what's moving.
-  let sysMoving = false, netMoving = false, storeMoving = false;
+  function paintAll(frac) {
+    const sysF   = frac != null ? frac : scrollFrac(sysSampleTs, SYS_MS);
+    const netF   = frac != null ? frac : scrollFrac(netSampleTs, NET_MS);
+    const storeF = frac != null ? frac : scrollFrac(storeSampleTs, STORE_MS);
+    drawSysGraph(sysF);
+    drawNetBottom(netF);
+    drawKpiCpu(sysF); drawKpiRam(sysF); drawKpiNet(netF); drawKpiStore(storeF);
+  }
   function glideFrame(now) {
-    const sysF   = scrollFrac(sysSampleTs, SYS_MS);
-    const netF   = scrollFrac(netSampleTs, NET_MS);
-    const storeF = scrollFrac(storeSampleTs, STORE_MS);
-    const allSettled = sysF >= 1 && netF >= 1 && storeF >= 1;
-    // paint on the throttle tick, OR unconditionally on the final settled frame
-    // so the last thing drawn is always the hi-quality (glow + fill) version
-    if (allSettled || now - glideLast >= GLIDE_MIN_DT) {
+    if (!glideOn) return;
+    if (document.hidden) { glideOn = false; return; }
+    if (now - glideLast >= GLIDE_MIN_DT) {
       glideLast = now;
-      if (sysF < 1 || sysMoving)     { drawSysGraph(sysF); drawKpiCpu(sysF); drawKpiRam(sysF); }
-      if (netF < 1 || netMoving)     { drawNetBottom(netF); drawKpiNet(netF); }
-      if (storeF < 1 || storeMoving) { drawKpiStore(storeF); }
-      sysMoving = sysF < 1; netMoving = netF < 1; storeMoving = storeF < 1;
+      paintAll(null);
+      lerpCores();
     }
-    if (allSettled) { glideOn = false; return; }
     requestAnimationFrame(glideFrame);
   }
-  function kickGlide() {
-    if (document.hidden) return;
-    if (GLIDE_FPS <= 0) {
-      drawSysGraph(1); drawNetBottom(1);
-      drawKpiCpu(1); drawKpiRam(1); drawKpiNet(1); drawKpiStore(1);
-      return;
-    }
-    if (glideOn) return;
+  function kickGlide() {                        // idempotent — ensures the loop is running
+    if (document.hidden || glideOn) return;
+    if (GLIDE_FPS <= 0) { paintAll(1); lerpCores(true); return; }
     glideOn = true; glideLast = 0;
     requestAnimationFrame(glideFrame);
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kickGlide(); });
 
-  function redrawCanvases() {                   // resize — full repaint at current glide position
-    const sysF   = scrollFrac(sysSampleTs, SYS_MS);
-    const netF   = scrollFrac(netSampleTs, NET_MS);
-    const storeF = scrollFrac(storeSampleTs, STORE_MS);
-    drawSysGraph(sysF);
-    drawNetBottom(netF);
-    drawKpiCpu(sysF); drawKpiRam(sysF); drawKpiNet(netF); drawKpiStore(storeF);
+  function redrawCanvases() {                   // resize — full repaint at current scroll position
+    paintAll(null);
     kickGlide();
   }
 
@@ -848,19 +825,29 @@
         track.append(fill);
         item.append(lab, track);
         box.append(item);
-        coreEls.push({ v, fill, w: '', cls: 'bar-fill' });
+        coreEls.push({ v, fill, cur: 0, target: 0, drawn: -1, cls: 'bar-fill' });
       }
     }
-    // scaleX carries the CSS ease (see .bar-fill) so a spike glides in instead
-    // of snapping — transform, not width, so it never forces a relayout.
+    // Nur das Ziel setzen — lerpCores() zieht cur pro Frame smooth hinterher
+    // (transform: scaleX, nie width → kein Relayout auf der GPU-losen Kiste).
     for (let i = 0; i < n; i++) {
       const p = Math.max(0, Math.min(100, Math.round(cores[i] || 0)));
       const el = coreEls[i];
-      const sx = 'scaleX(' + (p / 100).toFixed(3) + ')';
-      if (el.w !== sx) { el.fill.style.transform = sx; el.w = sx; }
+      el.target = p / 100;
       setText(el.v, p + '%');
       const cls = 'bar-fill' + (p > 80 ? ' danger' : p > 60 ? ' warn' : '');
       if (el.cls !== cls) { el.fill.className = cls; el.cls = cls; }
+    }
+  }
+  // pro Frame aus der Glide-Loop: cur → target lerpen, damit die Kernbalken
+  // durchgehend flüssig laufen statt in einem CSS-Sprung pro Sample.
+  function lerpCores(snap) {
+    for (let i = 0; i < coreEls.length; i++) {
+      const el = coreEls[i];
+      const d = el.target - el.cur;
+      el.cur = (snap || Math.abs(d) < 0.002) ? el.target : el.cur + d * 0.18;
+      const q = Math.round(el.cur * 1000) / 1000;
+      if (q !== el.drawn) { el.fill.style.transform = 'scaleX(' + q + ')'; el.drawn = q; }
     }
   }
 
