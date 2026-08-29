@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   // Externes Terminal
   spawnTerminal:   (geom) => ipcRenderer.send('terminal-spawn', geom),
   updateTerminalGeometry: (geom) => ipcRenderer.send('terminal-geometry', geom),
+  raiseTerminal:   ()     => ipcRenderer.send('terminal-raise'),
   termRestart:     ()     => ipcRenderer.send('terminal-restart'),
   termClear:       ()     => ipcRenderer.send('terminal-clear'),
   closeDashboard:  ()     => ipcRenderer.send('dashboard-close'),

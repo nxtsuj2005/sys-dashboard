@@ -1303,6 +1303,22 @@
     document.fonts.ready.then(() => syncTerminalGeometry()).catch(() => {});
   }
 
+  // ── Terminal-Stacking ────────────────────────────────────
+  // Ein Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über
+  // den nativen xterm — der verschwände dann hinter dem Rahmen. Also den xterm
+  // nach jeder Interaktion zurück nach oben holen (gedrosselt, kein Dauertimer).
+  if (api && api.raiseTerminal) {
+    let raiseT = 0;
+    const bounceTerminal = () => {
+      const now = performance.now();
+      if (now - raiseT < 120) return;
+      raiseT = now;
+      api.raiseTerminal();
+    };
+    window.addEventListener('pointerdown', bounceTerminal, true);
+    window.addEventListener('focus', bounceTerminal);
+  }
+
   // ── Storage hotplug ──────────────────────────────────────
   let storageUnsub = null;
   if (api && api.onStorageChanged) {

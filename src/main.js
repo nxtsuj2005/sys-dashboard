@@ -133,6 +133,9 @@ function createWindow() {
     mainWindow.focus();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  // Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über den
+  // xterm — den xterm danach zurück nach oben holen, sonst verschwindet er.
+  mainWindow.on('focus', () => raiseTerminal());
   log('Dashboard gestartet');
 }
 
@@ -465,6 +468,15 @@ let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
 let termSpawnTs         = 0;   // Zeitpunkt des letzten spawn()
 let applyPropsInFlight  = false;   // volle xprop-Kette läuft gerade
 let geomDebounceTimer   = null;    // Debounce für Geometrie-Updates
+let lastRaiseTs         = 0;       // Throttle für raiseTerminal (Renderer feuert pro Klick)
+
+// xterm im Stacking wieder über das Dashboard heben. windowraise bleibt innerhalb
+// des "unten"-Bands (KWin-Regel below=Force auf wmclass SysDashboardXterm bleibt in
+// Kraft), also kommt der xterm NICHT über normale Fenster — nur über das Dashboard.
+function raiseTerminal() {
+  if (!termWid) return;
+  exec(`xdotool windowraise ${termWid}`, (e) => { if (e) log('raiseTerminal: ' + e.message); });
+}
 
 function toScreenGeom(geom) {
   const bounds = mainWindow && !mainWindow.isDestroyed()
@@ -535,6 +547,7 @@ function applyWindowProps(wid, x, y, w, h) {
     exec(`xdotool windowmove ${wid} ${x} ${y} windowsize ${wid} ${w} ${h}`, () => {
       exec(`xdotool windowmap ${wid}`, () => {
         applyPropsInFlight = false;
+        raiseTerminal();                 // frisch gemappt → im Stacking nach oben (bleibt unter normalen Fenstern)
         log(`xterm konfiguriert: WID ${wid} @ (${x},${y}) ${w}×${h}`);
       });
     });
@@ -627,6 +640,15 @@ ipcMain.on('terminal-geometry', (event, geom) => {
   geomDebounceTimer = setTimeout(() => {
     if (termWid) moveTerminalWindow(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
   }, 150);
+});
+
+// Renderer feuert das pro Klick/Fokus aufs Dashboard — throttlen, damit nicht
+// bei jedem pointerdown ein xdotool-Prozess startet.
+ipcMain.on('terminal-raise', () => {
+  const now = Date.now();
+  if (now - lastRaiseTs < 100) return;
+  lastRaiseTs = now;
+  raiseTerminal();
 });
 
 ipcMain.on('terminal-restart', () => {
