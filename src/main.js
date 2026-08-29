@@ -160,6 +160,17 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
+// Aufräumen auch auf nicht-graceful Pfaden (SIGKILL kann man nicht abfangen,
+// aber SIGTERM/SIGINT/SIGHUP und before-quit schon).
+app.on('before-quit', () => { stopStorageMonitor(); killExternalTerminal(); });
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  process.on(sig, () => {
+    try { killExternalTerminal(); stopStorageMonitor(); } catch {}
+    app.quit();
+    process.exit(0);
+  });
+}
+
 // ── Storage hotplug monitor ────────────────────────────────────
 function notifyStorageChanged() {
   clearTimeout(storageNotifyTimer);
@@ -446,6 +457,8 @@ let termProc     = null;
 let termWid      = null;   // X11-WID des xterm-Fensters
 let termGeom     = null;   // { x, y, w, h } — Bildschirmkoordinaten des terminal-wrappers
 let termGen      = 0;
+let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
+let termSpawnTs         = 0;   // Zeitpunkt des letzten spawn()
 
 function toScreenGeom(geom) {
   const bounds = mainWindow && !mainWindow.isDestroyed()
@@ -461,17 +474,37 @@ function toScreenGeom(geom) {
 }
 
 function killOldXterm() {
+  // a. Pid aus Pidfile — aber nur killen, wenn die cmdline wirklich unser xterm ist
   try {
     const pid = parseInt(fs.readFileSync(XTERM_PID,'utf8').trim());
-    if (pid) try { process.kill(pid, 'SIGTERM'); log(`Alter xterm (PID ${pid}) beendet`); } catch {}
+    if (pid) {
+      try {
+        const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+        if (cmdline.includes('SysDashboardXterm')) {
+          process.kill(pid, 'SIGTERM');
+          log(`Alter xterm (PID ${pid}) beendet`);
+        }
+      } catch {}
+    }
   } catch {}
+  // b. Egal was war — alle übrig gebliebenen Orphans wegfegen (auch die ohne Pidfile)
+  try {
+    require('child_process').execFileSync('pkill', ['-f', 'SysDashboardXterm'], { timeout: 2000 });
+    log('xterm-Orphans via pkill entfernt');
+  } catch {}  // pkill exit != 0 wenn nichts passte — schlucken
+  // c. Pidfile weg
   try { fs.unlinkSync(XTERM_PID); } catch {}
 }
 
 function killExternalTerminal() {
   termGen++;                 // invalidiert einen evtl. anstehenden Auto-Neustart (exit-Handler)
   termWid = null;
-  if (termProc) { try { termProc.kill('SIGTERM'); } catch {} termProc = null; }
+  if (termProc && termProc.pid) {
+    // Negative PID = ganze Prozessgruppe (detached: true macht xterm zum Gruppenleiter)
+    try { process.kill(-termProc.pid, 'SIGTERM'); }
+    catch { try { termProc.kill('SIGTERM'); } catch {} }
+    termProc = null;
+  }
   try { fs.unlinkSync(XTERM_PID); } catch {}
 }
 
@@ -518,9 +551,10 @@ function spawnTerminal() {
     '-bc',                        // Block-Cursor
     '-bw',      '0',
     '-e',       '/usr/bin/fish',
-  ], { detached: false, env });
+  ], { detached: true, env });   // detached: true → Gruppenleiter, als Gruppe killbar (kein unref!)
 
-  fs.writeFileSync(XTERM_PID, String(termProc.pid), 'utf8');
+  if (termProc.pid) fs.writeFileSync(XTERM_PID, String(termProc.pid), 'utf8');
+  termSpawnTs = Date.now();
   log(`xterm gestartet (PID ${termProc.pid})`);
 
   termProc.on('error', (err) => log('xterm Fehler: ' + err.message));
@@ -528,8 +562,20 @@ function spawnTerminal() {
     if (gen !== termGen) return;
     termProc = null; termWid = null;
     try { fs.unlinkSync(XTERM_PID); } catch {}
-    log(`xterm beendet (exit ${code}), Neustart in 800ms`);
-    setTimeout(() => { if (gen === termGen) spawnTerminal(); }, 800);
+
+    const aliveMs = Date.now() - termSpawnTs;
+    if (aliveMs < 2000) termRestartAttempts++;   // Sofort-Absturz = Fehlstart
+    else                termRestartAttempts = 0; // lief eine Weile → normaler Neustart
+
+    if (termRestartAttempts >= 5) {
+      log('xterm startet wiederholt sofort ab (5×) — Auto-Neustart gestoppt. Prüfe: xterm installiert? /usr/bin/fish vorhanden?');
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal-failed');
+      return;
+    }
+
+    const delay = Math.min(30000, 800 * 2 ** termRestartAttempts);
+    log(`xterm beendet (exit ${code}, lief ${aliveMs}ms), Neustart in ${delay}ms (Versuch ${termRestartAttempts})`);
+    setTimeout(() => { if (gen === termGen) spawnTerminal(); }, delay);
   });
 
   // --sync: blockiert bis das xterm-Fenster erscheint → sofort unmap bevor User es sieht.
@@ -540,6 +586,7 @@ function spawnTerminal() {
     const wid = (out || '').trim();
     if (wid) {
       termWid = wid;
+      termRestartAttempts = 0;   // Fenster kam hoch → Fehlerzähler zurücksetzen
       applyWindowProps(wid, x, y, w, h);
     } else {
       log('xterm WID nicht gefunden (--sync' + (err ? ', ' + err.message : '') + ')');
@@ -549,6 +596,7 @@ function spawnTerminal() {
 
 ipcMain.on('terminal-spawn', (event, geom) => {
   termGeom = toScreenGeom(geom);
+  termRestartAttempts = 0;
   spawnTerminal();
 });
 
@@ -559,6 +607,7 @@ ipcMain.on('terminal-geometry', (event, geom) => {
 
 ipcMain.on('terminal-restart', () => {
   log('Terminal: manueller Neustart');
+  termRestartAttempts = 0;
   spawnTerminal();
 });
 
