@@ -5,29 +5,37 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src *;">
 <title>Dashboard</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;600&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   [hidden] { display: none !important; }
 
   :root {
-    --bg:      #0d0f14;
-    --bg-1:    #10131a;
-    --card:    #13161e;
-    --panel:   #171a22;
-    --elev:    #1a1e28;
-    --border:  #252a35;
-    --accent:  #4fc3f7;
-    --green:   #81c784;
-    --orange:  #ffb74d;
-    --red:     #ef5350;
-    --text:    #e8eaed;
-    --text-2:  #9aa0a6;
-    --muted:   #6b7280;
+    /* palette aligned with the web "HUD Edition" homelab dashboard */
+    --bg:      #0e1116;
+    --bg-1:    #12161d;
+    --card:    #161b22;
+    --panel:   #1c2230;
+    --elev:    #1c2230;
+    --border:  #2a313c;
+    --accent:  #4f9cf9;
+    --green:   #3fb950;
+    --orange:  #d29922;
+    --red:     #f85149;
+    --text:    #e6edf3;
+    --text-2:  #9aa7b4;
+    --muted:   #6b7480;
     --mono:    'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
     --sans:    'Space Grotesk', system-ui, -apple-system, sans-serif;
-    --radius:  8px;
+    --display: 'Chakra Petch', 'Space Grotesk', system-ui, sans-serif;
+    --radius:  2px;
     --gap:     clamp(7px, 1.15vh, 11px);
+
+    /* derived accent treatments (mirror style.css :root) */
+    --glow:        color-mix(in srgb, var(--accent) 55%, transparent);
+    --glow-soft:   color-mix(in srgb, var(--accent) 22%, transparent);
+    --accent-dim:  color-mix(in srgb, var(--accent) 55%, var(--border));
+    --accent-faint:color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
   html, body {
@@ -75,13 +83,19 @@
 
   /* ── Topbar ── */
   #topbar {
+    position: relative;
     display: flex; align-items: center; gap: 16px;
     background: var(--card); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 0 16px;
   }
-  .tb-logo   { font: 700 13px/1 var(--mono); color: var(--accent); letter-spacing: 3px; }
+  /* static accent signal-line along the bottom edge (matches web .topbar::after) */
+  #topbar::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent) 18%, transparent 46%, var(--glow-soft) 72%, transparent);
+  }
+  .tb-logo   { font: 700 13px/1 var(--display); color: var(--accent); letter-spacing: 4px; text-transform: uppercase; text-shadow: 0 0 14px var(--glow-soft); }
   .tb-online { display: inline-flex; align-items: center; gap: 6px; font: 400 10px/1 var(--mono); letter-spacing: 1.5px; color: var(--text-2); }
-  .tb-dot    { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .tb-dot    { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 80%, transparent); }
   .tb-spacer { flex: 1; }
   .tb-host   { font: 400 12px/1 var(--mono); color: var(--muted); display: inline-flex; gap: 8px; align-items: baseline; }
   #tb-hostname { color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; }
@@ -94,14 +108,29 @@
 
   /* ── Cards ── */
   .card {
+    position: relative;
     background: var(--card); border: 1px solid var(--border);
     border-radius: var(--radius); padding: clamp(9px, 1.5vh, 13px);
     display: flex; flex-direction: column; min-height: 0; overflow: hidden;
     transition: border-color .15s ease;
   }
-  .card:hover { border-color: rgba(79,195,247,0.35); }
+  /* four L-shaped accent corner-brackets — static multi-gradient (HUD signature) */
+  .card::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .28;
+    background-image:
+      linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+      linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+      linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent)),
+      linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent));
+    background-repeat: no-repeat;
+    background-size: 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px;
+    background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+    transition: opacity .15s ease;
+  }
+  .card:hover { border-color: var(--accent-dim); }
+  .card:hover::after { opacity: .7; }
   .card-title {
-    font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase;
+    font: 600 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase;
     color: var(--text-2); margin-bottom: 8px; flex-shrink: 0;
     display: flex; align-items: center; gap: 6px;
   }
@@ -117,8 +146,8 @@
 
   /* ── KPI cards ── */
   .kpi-card { padding: clamp(9px, 1.5vh, 13px) clamp(11px, 1.6vw, 15px); justify-content: flex-start; gap: 5px; }
-  .kpi-label { font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); }
-  .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1 var(--mono); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .kpi-label { font: 600 10px/1 var(--mono); letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-2); }
+  .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1.1 var(--display); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; text-shadow: 0 0 16px var(--glow-soft); }
   .kpi-sub   { font: 400 10px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
   .kpi-spark { width: 100%; flex: 1 1 auto; min-height: 20px; align-self: stretch; display: block; }
 
@@ -134,19 +163,23 @@
   /* ── Bars ── */
   .bar-item  { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
   .bar-label { display: flex; justify-content: space-between; font: 400 10px/1 var(--mono); color: var(--muted); }
-  .bar-track { height: 5px; border-radius: 3px; background: var(--bg-1); overflow: hidden; }
+  /* static diagonal hatch in the empty channel — the fill's gradient covers it (HUD "conduit" look) */
+  .bar-track { height: 7px; border-radius: 0; border: 1px solid var(--border); overflow: hidden;
+    background: var(--panel) repeating-linear-gradient(-45deg, transparent 0 5px, rgba(154,167,180,.07) 5px 7px); }
   /* long ease so a core spike glides in instead of snapping */
   /* scaleX (not width) so the ease never triggers layout — cheap on a GPU-less box */
-  .bar-fill  { height: 100%; width: 100%; border-radius: 3px; background: var(--accent);
+  .bar-fill  { height: 100%; width: 100%; border-radius: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, var(--bg)), var(--accent));
+    box-shadow: 0 0 8px var(--glow);
     transform-origin: left center; transform: scaleX(0);
-    transition: transform .55s cubic-bezier(.25,.8,.35,1), background-color .6s ease; }
-  .bar-fill.warn   { background: var(--orange); }
-  .bar-fill.danger { background: var(--red); }
+    transition: transform .55s cubic-bezier(.25,.8,.35,1), background .6s ease, box-shadow .6s ease; }
+  .bar-fill.warn   { background: linear-gradient(90deg, color-mix(in srgb, var(--orange) 60%, var(--bg)), var(--orange)); box-shadow: 0 0 8px color-mix(in srgb, var(--orange) 55%, transparent); }
+  .bar-fill.danger { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 60%, var(--bg)), var(--red)); box-shadow: 0 0 8px color-mix(in srgb, var(--red) 55%, transparent); }
 
   /* ── System status card ── */
   .status-body { overflow-y: auto; gap: 0; }
   .status-section + .status-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-  .section-title { font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
+  .section-title { font: 600 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
   .svc-line { display: flex; gap: 16px; font: 400 12px/1.4 var(--mono); }
   #svc-running { color: var(--green); }
   .svc-val.is-green { color: var(--green); }
@@ -241,7 +274,8 @@
   /* ── Scrollbars ── */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: var(--panel); border-radius: 0; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
 
   /* ── Spinner ── */
   .spinner { display: inline-block; width: 8px; height: 8px; border: 1.5px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin-left: auto; }
@@ -257,7 +291,7 @@
   #boot.done { opacity: 0; pointer-events: none; }
   .boot-inner { display: flex; flex-direction: column; align-items: center; gap: 16px; width: min(400px, 74vw); }
   .boot-logo {
-    font: 700 clamp(30px, 6vw, 48px)/1 var(--mono); color: var(--text);
+    font: 700 clamp(30px, 6vw, 48px)/1 var(--display); color: var(--text);
     letter-spacing: 2px; opacity: 0; transform: translateY(6px);
     transition: opacity .4s ease, letter-spacing .6s cubic-bezier(.2,.7,.2,1), transform .4s ease;
   }
@@ -545,13 +579,15 @@
   }
 
   function gridlines(ctx, w, h) {
-    ctx.strokeStyle = 'rgba(107,114,128,0.14)';
+    ctx.strokeStyle = 'rgba(154,167,180,0.13)';                   // --text-2 @ low alpha, matches web .chart-grid-line
     ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);                                      // dashed, like the web SVG charts
     for (let i = 1; i < 4; i++) {
       const y = Math.round((h / 4) * i) + 0.5;
       ctx.beginPath();
       ctx.moveTo(-24, y); ctx.lineTo(w + 24, y); ctx.stroke();   // overscan so the CSS glide never bares an edge
     }
+    ctx.setLineDash([]);
   }
 
   // xOff (px) shifts the whole polyline left — a fraction of one step, fed by the
@@ -570,7 +606,7 @@
     const last = pts[pts.length - 1];
     if (fill) {
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, color.replace(/[\d.]+\)$/, '0.16)'));
+      g.addColorStop(0, color.replace(/[\d.]+\)$/, '0.18)'));
       g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
       ctx.beginPath();
       ctx.moveTo(pts[0].x, H);
@@ -581,12 +617,13 @@
       ctx.fillStyle = g;
       ctx.fill();
     }
-    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 5; }
+    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 6; }
     ctx.beginPath();
     pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     if (last.x < W) ctx.lineTo(W, last.y);
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 1.7;
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
@@ -634,8 +671,8 @@
     const settled = frac == null || frac >= 1;
     const x = offPx(settled ? 1 : frac, s.w);
     gridlines(sysGraphCv.ctx, s.w, s.h);
-    plotLine(sysGraphCv.ctx, ramHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(129,199,132,0.9)', settled, x, settled);
-    plotLine(sysGraphCv.ctx, cpuHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(79,195,247,0.95)', settled, x, settled);
+    plotLine(sysGraphCv.ctx, ramHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(63,185,80,0.9)', settled, x, settled);
+    plotLine(sysGraphCv.ctx, cpuHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(79,156,249,0.95)', settled, x, settled);
   }
   function drawNetBottom(frac) {
     const s = netbCv.prep();
@@ -643,7 +680,7 @@
     const settled = frac == null || frac >= 1;
     gridlines(netbCv.ctx, s.w, s.h);
     const vmax = netVmax(netHist);
-    plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
+    plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
   }
   function sparkPct(cv, hist, color) {
     const s = cv.prep();
@@ -654,15 +691,15 @@
     const s = cv.prep();
     if (!s.w) return;
     const vmax = netVmax(hist);
-    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.85)', true, 0, false);
+    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,156,249,0.85)', true, 0, false);
   }
   function drawKpiSparks() {                    // sparks are tiny — redraw on tick, no scroll
-    sparkPct(kpiCpuCv, cpuHist, 'rgba(79,195,247,0.9)');
-    sparkPct(kpiRamCv, ramHist, 'rgba(129,199,132,0.9)');
+    sparkPct(kpiCpuCv, cpuHist, 'rgba(79,156,249,0.9)');
+    sparkPct(kpiRamCv, ramHist, 'rgba(63,185,80,0.9)');
     sparkNet(kpiNetCv, netHist);
   }
   function drawStoreSpark() {
-    sparkPct(kpiStoreCv, storeHist, 'rgba(255,183,77,0.7)');
+    sparkPct(kpiStoreCv, storeHist, 'rgba(210,153,34,0.8)');
   }
 
   // ── low-rate scroll loop ────────────────────────────────────
