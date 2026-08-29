@@ -1,0 +1,174 @@
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { exec, spawn } = require('child_process');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+
+let mainWindow;
+let ptyProcess = null;
+
+// Try to load node-pty, fallback gracefully
+let pty;
+try {
+  pty = require('node-pty');
+} catch (e) {
+  console.warn('node-pty not available, terminal will use fallback');
+}
+
+function createWindow() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
+  mainWindow = new BrowserWindow({
+    width,
+    height,
+    x: 0,
+    y: 0,
+    frame: false,
+    transparent: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    fullscreen: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+    backgroundColor: '#0d0f14',
+  });
+
+  mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
+  mainWindow.maximize();
+}
+
+app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+  if (ptyProcess) ptyProcess.kill();
+  app.quit();
+});
+
+// ── IPC: System stats ──────────────────────────────────────────
+ipcMain.handle('get-cpu', async () => {
+  return new Promise((resolve) => {
+    const start = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a, b) => a + b, 0) }));
+    setTimeout(() => {
+      const end = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a, b) => a + b, 0) }));
+      const usages = start.map((s, i) => {
+        const idleDiff = end[i].idle - s.idle;
+        const totalDiff = end[i].total - s.total;
+        return Math.round(100 * (1 - idleDiff / totalDiff));
+      });
+      const avg = Math.round(usages.reduce((a, b) => a + b, 0) / usages.length);
+      resolve({ avg, cores: usages });
+    }, 500);
+  });
+});
+
+ipcMain.handle('get-ram', () => {
+  const total = os.totalmem();
+  const free = os.freemem();
+  const used = total - free;
+  return {
+    total: Math.round(total / 1024 / 1024),
+    used: Math.round(used / 1024 / 1024),
+    free: Math.round(free / 1024 / 1024),
+    percent: Math.round((used / total) * 100),
+  };
+});
+
+ipcMain.handle('get-net', async () => {
+  return new Promise((resolve) => {
+    const readStats = () => {
+      const lines = fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2);
+      let rx = 0, tx = 0;
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 10) continue;
+        const iface = parts[0].replace(':', '');
+        if (iface === 'lo') continue;
+        rx += parseInt(parts[1]) || 0;
+        tx += parseInt(parts[9]) || 0;
+      }
+      return { rx, tx };
+    };
+    const s1 = readStats();
+    setTimeout(() => {
+      const s2 = readStats();
+      resolve({
+        rx: Math.round((s2.rx - s1.rx) / 1024),
+        tx: Math.round((s2.tx - s1.tx) / 1024),
+      });
+    }, 1000);
+  });
+});
+
+ipcMain.handle('get-lsblk', async () => {
+  return new Promise((resolve) => {
+    exec('lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,LABEL,FSTYPE -J 2>/dev/null || lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,LABEL', (err, stdout) => {
+      resolve(stdout || 'lsblk nicht verfügbar');
+    });
+  });
+});
+
+ipcMain.handle('get-weather', async (_, city) => {
+  return new Promise((resolve) => {
+    exec(`curl -s --max-time 5 "https://wttr.in/${encodeURIComponent(city)}?format=j1" 2>/dev/null`, (err, stdout) => {
+      if (err || !stdout) { resolve(null); return; }
+      try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
+    });
+  });
+});
+
+ipcMain.handle('get-rss', async (_, url) => {
+  return new Promise((resolve) => {
+    exec(`curl -s --max-time 8 "${url}" 2>/dev/null`, (err, stdout) => {
+      resolve(stdout || '');
+    });
+  });
+});
+
+ipcMain.handle('save-notes', (_, content) => {
+  const notesPath = path.join(os.homedir(), '.dashboard-notes.txt');
+  fs.writeFileSync(notesPath, content, 'utf8');
+  return true;
+});
+
+ipcMain.handle('load-notes', () => {
+  const notesPath = path.join(os.homedir(), '.dashboard-notes.txt');
+  try { return fs.readFileSync(notesPath, 'utf8'); } catch { return ''; }
+});
+
+// ── Terminal via node-pty ──────────────────────────────────────
+ipcMain.on('terminal-init', (event) => {
+  if (!pty) {
+    event.sender.send('terminal-data', '\r\n  [node-pty nicht installiert — führe npm install aus]\r\n');
+    return;
+  }
+  if (ptyProcess) { ptyProcess.kill(); }
+
+  ptyProcess = pty.spawn(process.env.SHELL || 'bash', [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: os.homedir(),
+    env: process.env,
+  });
+
+  ptyProcess.onData((data) => {
+    event.sender.send('terminal-data', data);
+  });
+
+  ptyProcess.onExit(() => {
+    event.sender.send('terminal-data', '\r\n[Shell beendet]\r\n');
+    ptyProcess = null;
+  });
+});
+
+ipcMain.on('terminal-input', (_, data) => {
+  if (ptyProcess) ptyProcess.write(data);
+});
+
+ipcMain.on('terminal-resize', (_, { cols, rows }) => {
+  if (ptyProcess) ptyProcess.resize(cols, rows);
+});

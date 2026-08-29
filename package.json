@@ -1,0 +1,14 @@
+{
+  "name": "sys-dashboard",
+  "version": "1.0.0",
+  "description": "Personal sysadmin desktop dashboard",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "ELECTRON_OZONE_PLATFORM_HINT=x11 electron .",
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "electron": "^41.1.1",
+    "node-pty": "^1.1.0"
+  }
+}

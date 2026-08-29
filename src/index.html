@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src *;">
+<title>Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+
+  :root {
+    --bg:      #0d0f14;
+    --bg-1:    #10131a;
+    --card:    #13161e;
+    --panel:   #171a22;
+    --elev:    #1a1e28;
+    --border:  #252a35;
+    --accent:  #4fc3f7;
+    --green:   #81c784;
+    --orange:  #ffb74d;
+    --red:     #ef5350;
+    --text:    #e8eaed;
+    --text-2:  #9aa0a6;
+    --muted:   #6b7280;
+    --mono:    'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+    --sans:    'Space Grotesk', system-ui, -apple-system, sans-serif;
+    --radius:  8px;
+    --gap:     clamp(7px, 1.15vh, 11px);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* faint full-screen scanline overlay — kept subtle so it doesn't fuzz text */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 50;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.013) 0 1px, transparent 1px 4px);
+  }
+
+  /* ── Layout ── */
+  #app {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows:
+      clamp(40px, 5vh, 46px)
+      clamp(86px, 12.5vh, 106px)
+      minmax(0, 1fr)
+      minmax(210px, 28vh)
+      clamp(150px, 22vh, 178px);
+    gap: var(--gap);
+    padding: var(--gap);
+    height: 100vh;
+    overflow: hidden;
+  }
+  #kpi    { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap); min-height: 0; }
+  #main   { display: grid; grid-template-columns: 1fr 1fr clamp(260px, 24vw, 320px); gap: var(--gap); min-height: 0; overflow: hidden; }
+  #bottom { display: grid; grid-template-columns: 1.3fr 1fr 1.1fr; gap: var(--gap); min-height: 0; overflow: hidden; }
+  #kpi > *, #main > *, #bottom > * { min-width: 0; }
+  #main-right { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+
+  /* ── Topbar ── */
+  #topbar {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0 16px;
+  }
+  .tb-logo   { font: 700 13px/1 var(--mono); color: var(--accent); letter-spacing: 3px; }
+  .tb-online { display: inline-flex; align-items: center; gap: 6px; font: 400 10px/1 var(--mono); letter-spacing: 1.5px; color: var(--text-2); }
+  .tb-dot    { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .tb-spacer { flex: 1; }
+  .tb-host   { font: 400 12px/1 var(--mono); color: var(--muted); display: inline-flex; gap: 8px; align-items: baseline; }
+  #tb-hostname { color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; }
+  .bat-pill  { font: 400 11px/1 var(--mono); padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-2); }
+  .bat-pill.is-green  { color: var(--green); }
+  .bat-pill.is-orange { color: var(--orange); }
+  .bat-pill.is-red    { color: var(--red); }
+  .tb-clock  { font: 400 16px/1 var(--mono); color: var(--text); letter-spacing: 1.5px; font-variant-numeric: tabular-nums; }
+
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: clamp(9px, 1.5vh, 13px);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    transition: border-color .15s ease;
+  }
+  .card:hover { border-color: rgba(79,195,247,0.35); }
+  .card-title {
+    font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-2); margin-bottom: 8px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px;
+  }
+  /* inline legend (System-Graph) */
+  .ct-legend { margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+    font: 400 9px/1 var(--mono); letter-spacing: 1px; color: var(--muted); }
+  .ct-legend + .ct-legend { margin-left: 10px; }
+  .ct-legend i { width: 7px; height: 2px; border-radius: 1px; display: inline-block; }
+  .ct-legend .lg-cpu { background: var(--accent); }
+  .ct-legend .lg-ram { background: var(--green); }
+  .card-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .muted-line { font: 400 10px/1.4 var(--mono); color: var(--muted); }
+
+  /* ── KPI cards ── */
+  .kpi-card { padding: clamp(9px, 1.5vh, 13px) clamp(11px, 1.6vw, 15px); justify-content: flex-start; gap: 5px; }
+  .kpi-label { font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); }
+  .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1 var(--mono); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .kpi-sub   { font: 400 10px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .kpi-spark { width: 100%; flex: 1 1 auto; min-height: 20px; align-self: stretch; display: block; }
+
+  /* ── System graph card ── */
+  .sysgraph-canvas-wrap { height: clamp(80px, 15vh, 150px); flex-shrink: 0; overflow: hidden; }
+  #sys-graph { width: 100%; height: 100%; display: block; }
+  #core-bars {
+    flex: 1; min-height: 0; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 5px;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+  }
+
+  /* ── Bars ── */
+  .bar-item  { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+  .bar-label { display: flex; justify-content: space-between; font: 400 10px/1 var(--mono); color: var(--muted); }
+  .bar-track { height: 5px; border-radius: 3px; background: var(--bg-1); overflow: hidden; }
+  /* long ease so a core spike glides in instead of snapping */
+  /* scaleX (not width) so the ease never triggers layout — cheap on a GPU-less box */
+  .bar-fill  { height: 100%; width: 100%; border-radius: 3px; background: var(--accent);
+    transform-origin: left center; transform: scaleX(0);
+    transition: transform .55s cubic-bezier(.25,.8,.35,1), background-color .6s ease; }
+  .bar-fill.warn   { background: var(--orange); }
+  .bar-fill.danger { background: var(--red); }
+
+  /* ── System status card ── */
+  .status-body { overflow-y: auto; gap: 0; }
+  .status-section + .status-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .section-title { font: 600 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
+  .svc-line { display: flex; gap: 16px; font: 400 12px/1.4 var(--mono); }
+  #svc-running { color: var(--green); }
+  .svc-val.is-green { color: var(--green); }
+  .svc-val.is-red   { color: var(--red); }
+  #svc-fail-list { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
+  .svc-fail-row { display: flex; gap: 8px; font: 400 11px/1.5 var(--mono); }
+  .svc-fail-row .n { color: var(--red); flex-shrink: 0; }
+  .svc-fail-row .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #alert-list { display: flex; flex-direction: column; gap: 2px; }
+  .alert-row { display: flex; align-items: center; gap: 8px; font: 400 11px/1.7 var(--mono); }
+  .alert-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+  .alert-dot.sev-red    { background: var(--red); }
+  .alert-dot.sev-orange { background: var(--orange); }
+  .alert-dot.sev-green  { background: var(--green); }
+  .alert-label  { color: var(--text); text-transform: uppercase; letter-spacing: .5px; }
+  .alert-detail { color: var(--muted); margin-left: auto; padding-left: 8px; }
+
+  /* ── Weather ── */
+  #weather-card { flex: 0 0 auto; }
+  .weather-main { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .weather-temp { font: 700 clamp(22px, 4vh, 34px)/1 var(--mono); color: var(--accent); }
+  .weather-desc { font: 400 11px/1.4 var(--sans); color: var(--text-2); }
+  .w-muted { color: var(--muted); }
+  .w-status { font: 400 11px/1.4 var(--mono); color: var(--muted); }
+  .weather-details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .weather-item { background: var(--panel); border-radius: 6px; padding: 6px 9px; }
+  .wlabel { font: 500 9px/1 var(--sans); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .wval   { font: 400 12px/1 var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* ── RSS ── */
+  #rss-card { flex: 1 1 0; min-height: 0; }
+  .rss-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+  .rss-item { padding: 7px 9px; background: var(--panel); border-radius: 6px; border-left: 2px solid var(--border); flex-shrink: 0; transition: border-color .15s ease; }
+  .rss-item.is-link { cursor: pointer; }
+  .rss-item.is-link:hover { border-left-color: var(--accent); }
+  .rss-title { font: 400 11px/1.35 var(--sans); color: var(--text); }
+  .rss-date  { font: 400 9px/1 var(--mono); color: var(--muted); margin-top: 3px; }
+  .rss-empty { font: 400 11px/1.4 var(--mono); color: var(--muted); }
+
+  /* ── Terminal (native xterm darunter — nur Rahmen) ── */
+  #terminal-card {
+    background: #0a0c10; border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    display: flex; flex-direction: column; min-height: 0;
+    pointer-events: none;               /* Klicks gehen zum nativen Terminal durch */
+  }
+  #terminal-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    pointer-events: all;                /* Header bleibt klickbar */
+    position: relative; z-index: 10;
+  }
+  .dot-r, .dot-y, .dot-g { width: 10px; height: 10px; border-radius: 50%; cursor: pointer; transition: opacity .15s ease; }
+  .dot-r { background: var(--red); }
+  .dot-y { background: var(--orange); }
+  .dot-g { background: var(--green); }
+  .dot-r:hover, .dot-y:hover, .dot-g:hover { opacity: .6; }
+  #terminal-header span { font: 400 10px/1 var(--mono); color: var(--muted); margin-left: 6px; letter-spacing: 1px; }
+  #terminal-wrapper { flex: 1; min-height: 0; }
+
+  /* ── Storage / lsblk ── */
+  .storage-body { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+  #lsblk-content { flex: 1; min-height: 0; overflow: auto; font: 400 10.5px/1.55 var(--mono); white-space: pre; color: var(--text); }
+  .lsblk-head { color: var(--muted); }
+  .lb-d { color: var(--accent); font-weight: 700; }
+  .lb-p { color: var(--green); }
+  .lb-s { color: var(--orange); }
+  #disk-io-summary { flex: 0 0 auto; border-top: 1px solid var(--border); padding-top: 8px; }
+  .disk-io-head { display: grid; grid-template-columns: 1fr 66px 66px; gap: 6px; font: 500 9px/1 var(--sans); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .disk-io-list { display: flex; flex-direction: column; gap: 4px; max-height: 92px; overflow-y: auto; }
+  .dio-row { display: grid; grid-template-columns: 1fr 66px 66px; gap: 6px; align-items: center; font: 400 10px/1.3 var(--mono); color: var(--text); }
+  .dio-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dio-meta { color: var(--muted); text-transform: uppercase; font-size: 9px; }
+  .dio-read  { color: var(--green); text-align: right; }
+  .dio-write { color: var(--orange); text-align: right; }
+
+  /* ── Network (bottom) ── */
+  .netb-body { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+  .netb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex-shrink: 0; }
+  .netb-stat { display: flex; flex-direction: column; gap: 3px; background: var(--panel); border-radius: 6px; padding: 8px 10px; }
+  .netb-val { font: 700 clamp(14px, 2.3vh, 20px)/1 var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .netb-dir { font: 500 9px/1 var(--sans); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+  .netb-canvas-wrap { flex: 1; min-height: 28px; overflow: hidden; }
+  #netb-canvas { width: 100%; height: 100%; display: block; }
+
+  /* ── Notes ── */
+  #notes-input { width: 100%; height: 100%; background: transparent; border: none; color: var(--text); font: 400 12px/1.6 var(--mono); resize: none; outline: none; user-select: text; }
+  #notes-input::placeholder { color: var(--muted); }
+
+  /* ── Scrollbars ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Spinner ── */
+  .spinner { display: inline-block; width: 8px; height: 8px; border: 1.5px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin-left: auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Boot / welcome screen ── */
+  #boot {
+    position: fixed; inset: 0; z-index: 9999;
+    background: radial-gradient(ellipse at 50% 40%, #14171f 0%, var(--bg) 60%);
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .4s ease;
+  }
+  #boot.done { opacity: 0; pointer-events: none; }
+  .boot-inner { display: flex; flex-direction: column; align-items: center; gap: 16px; width: min(400px, 74vw); }
+  .boot-logo {
+    font: 700 clamp(30px, 6vw, 48px)/1 var(--mono); color: var(--text);
+    letter-spacing: 2px; opacity: 0; transform: translateY(6px);
+    transition: opacity .4s ease, letter-spacing .6s cubic-bezier(.2,.7,.2,1), transform .4s ease;
+  }
+  .boot-logo.show { opacity: 1; letter-spacing: 11px; transform: none; }
+  .boot-logo .boot-mid { color: var(--accent); }
+  .boot-logo.glitch { animation: boot-glitch .22s steps(2, jump-none) 1; }
+  .boot-tag {
+    font: 500 10px/1 var(--sans); letter-spacing: 5px; text-transform: uppercase; color: var(--muted);
+    opacity: 0; transition: opacity .4s ease;
+  }
+  .boot-tag.show { opacity: 1; }
+  .boot-feed {
+    width: 100%; min-height: 128px; margin-top: 6px;
+    display: flex; flex-direction: column; gap: 4px;
+    font: 400 11.5px/1.5 var(--mono);
+  }
+  .boot-feed .bl { display: flex; gap: 10px; opacity: 0; transform: translateY(3px); transition: opacity .25s ease, transform .25s ease; }
+  .boot-feed .bl.show { opacity: 1; transform: none; }
+  .boot-feed .bl .ok { color: var(--green); letter-spacing: 1px; }
+  .boot-feed .bl .k  { color: var(--muted); min-width: 92px; }
+  .boot-feed .bl .v  { color: var(--text-2); }
+  .boot-bar { width: 100%; height: 3px; background: var(--bg-1); border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity .3s ease; }
+  .boot-bar.show { opacity: 1; }
+  .boot-bar-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--green)); transition: width .7s cubic-bezier(.3,.8,.3,1); }
+  .boot-ready { font: 700 12px/1 var(--mono); letter-spacing: 6px; color: var(--green); opacity: 0; transition: opacity .25s ease; }
+  .boot-ready.show { opacity: 1; }
+  @keyframes boot-glitch {
+    0%   { text-shadow: 0 0 transparent; }
+    30%  { text-shadow: -2px 0 var(--red), 2px 0 var(--accent); }
+    60%  { text-shadow: 2px 0 var(--orange), -2px 0 var(--accent); }
+    100% { text-shadow: 0 0 transparent; }
+  }
+
+  /* ── Dense mode ── */
+  @media (max-height: 720px) {
+    :root { --gap: 6px; }
+    html, body { font-size: 13px; }
+    #app { grid-template-rows: 40px clamp(76px, 11vh, 92px) minmax(0, 1fr) minmax(180px, 26vh) clamp(138px, 19vh, 162px); }
+    .kpi-value { font-size: 20px; }
+    .kpi-spark { min-height: 16px; }
+    .sysgraph-canvas-wrap { height: clamp(64px, 11vh, 100px); }
+    .tb-clock { font-size: 13px; }
+    .weather-temp { font-size: 24px; }
+    .weather-item { padding: 5px 8px; }
+    .disk-io-list { max-height: 68px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOPBAR -->
+  <header id="topbar">
+    <span class="tb-logo">⬡ SYS·DASH</span>
+    <span class="tb-online"><span class="tb-dot"></span>ONLINE</span>
+    <span class="tb-spacer"></span>
+    <span class="tb-host"><span id="tb-hostname">—</span><span class="tb-up" id="tb-uptime"></span></span>
+    <span class="bat-pill" id="bat-pill" hidden><span id="bat-pct">⚡ —%</span></span>
+    <span class="tb-clock" id="clock">--:--:--</span>
+  </header>
+
+  <!-- KPI ROW -->
+  <div id="kpi">
+    <div class="card kpi-card">
+      <div class="kpi-label">CPU</div>
+      <div class="kpi-value" id="kpi-cpu-val">—%</div>
+      <canvas class="kpi-spark" id="kpi-cpu-spark"></canvas>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-label">RAM</div>
+      <div class="kpi-value" id="kpi-ram-val">—%</div>
+      <canvas class="kpi-spark" id="kpi-ram-spark"></canvas>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-label">Speicher</div>
+      <div class="kpi-value" id="kpi-store-val">—</div>
+      <canvas class="kpi-spark" id="kpi-store-spark"></canvas>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-label">Netzwerk</div>
+      <div class="kpi-value" id="kpi-net-val">↓ —</div>
+      <div class="kpi-sub" id="kpi-net-sub">↑ —</div>
+      <canvas class="kpi-spark" id="kpi-net-spark"></canvas>
+    </div>
+  </div>
+
+  <!-- MAIN BAND -->
+  <div id="main">
+
+    <!-- System graph -->
+    <div class="card" id="sysgraph-card">
+      <div class="card-title">System-Graph
+        <span class="ct-legend"><i class="lg-cpu"></i>CPU</span>
+        <span class="ct-legend"><i class="lg-ram"></i>RAM</span>
+      </div>
+      <div class="card-body">
+        <div class="sysgraph-canvas-wrap"><canvas id="sys-graph"></canvas></div>
+        <div id="core-bars"><div class="muted-line">Lade…</div></div>
+      </div>
+    </div>
+
+    <!-- System status -->
+    <div class="card" id="status-card">
+      <div class="card-title">System-Status</div>
+      <div class="card-body status-body">
+        <div class="status-section">
+          <div class="section-title">Dienste</div>
+          <div class="svc-line">
+            <span id="svc-running">running —</span>
+            <span class="svc-val is-green" id="svc-failed">failed —</span>
+          </div>
+          <div id="svc-fail-list"></div>
+        </div>
+        <div class="status-section">
+          <div class="section-title">Alerts</div>
+          <div id="alert-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: weather + rss -->
+    <div id="main-right">
+      <div class="card" id="weather-card">
+        <div class="card-title">Wetter — Schwäbisch Hall</div>
+        <div class="card-body" id="weather-body"><div class="w-status">Lade…</div></div>
+      </div>
+      <div class="card" id="rss-card">
+        <div class="card-title">RSS — Heise</div>
+        <div class="card-body">
+          <div class="rss-list" id="rss-list"><div class="rss-empty">Lade…</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TERMINAL BAND — nur Rahmen, natives xterm darunter -->
+  <div id="terminal-card">
+    <div id="terminal-header">
+      <div class="dot-r" id="term-btn-restart" title="Terminal neu starten"></div>
+      <div class="dot-y" id="term-btn-clear"   title="Terminal leeren"></div>
+      <div class="dot-g" id="term-btn-close"   title="Dashboard schließen"></div>
+      <span>fish — /usr/bin/fish (nativ)</span>
+    </div>
+    <div id="terminal-wrapper"></div>
+  </div>
+
+  <!-- BOTTOM BAND -->
+  <div id="bottom">
+
+    <!-- Storage -->
+    <div class="card" id="storage-card">
+      <div class="card-title">Blockgeräte <span id="lsblk-spin" class="spinner"></span></div>
+      <div class="card-body storage-body">
+        <div id="lsblk-content">Lade…</div>
+        <div id="disk-io-summary">
+          <div class="disk-io-head"><span>Medium</span><span>Read</span><span>Write</span></div>
+          <div class="disk-io-list" id="disk-io-list">
+            <div class="dio-row"><span class="dio-name">Lade…</span><span class="dio-read">—</span><span class="dio-write">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network -->
+    <div class="card" id="netb-card">
+      <div class="card-title">Netzwerk</div>
+      <div class="card-body netb-body">
+        <div class="netb-stats">
+          <div class="netb-stat"><span class="netb-val" id="netb-rx">—</span><span class="netb-dir">↓ Down</span></div>
+          <div class="netb-stat"><span class="netb-val" id="netb-tx">—</span><span class="netb-dir">↑ Up</span></div>
+        </div>
+        <div class="netb-canvas-wrap"><canvas id="netb-canvas"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="card" id="notes-card">
+      <div class="card-title">Schnellnotiz</div>
+      <div class="card-body"><textarea id="notes-input" placeholder="Tippe einfach los…" spellcheck="false"></textarea></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- WELCOME / BOOT -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-logo" id="boot-logo">SYS<span class="boot-mid">·</span>DASH</div>
+    <div class="boot-tag" id="boot-tag">System Monitor</div>
+    <div class="boot-feed" id="boot-feed"></div>
+    <div class="boot-bar"><div class="boot-bar-fill" id="boot-bar-fill"></div></div>
+    <div class="boot-ready" id="boot-ready">SYSTEM READY</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+(function () {
+  const api = window.api;
+  const GRAPH_MAX = 80;
+
+  // ── Interval registry ────────────────────────────────────────
+  const timers = [];
+  const every = (fn, ms) => { try { fn(); } catch (e) {} timers.push(setInterval(fn, ms)); };
+
+  // ── Small helpers ────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+
+  function setText(el, text, _doFlash) {
+    // 3rd arg kept for call-site compatibility, no-op
+    if (!el) return false;
+    const s = String(text);
+    if (el.textContent === s) return false;
+    el.textContent = s;
+    return true;
+  }
+
+  function remember(hist, v, max) {
+    max = max || GRAPH_MAX;
+    if (!hist.length) hist.push(v);
+    hist.push(v);
+    if (hist.length > max) hist.splice(0, hist.length - max);
+  }
+
+  function fmtRate(kb) {
+    kb = +kb || 0;
+    return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : Math.round(kb) + ' KB/s';
+  }
+  const formatIo = fmtRate;
+
+  function fmtUptime(sec) {
+    sec = sec || 0;
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+
+  function nowStr() { return new Date().toLocaleTimeString('de-DE', { hour12: false }); }
+
+  function parseSize(s) {
+    if (s == null) return 0;
+    if (typeof s === 'number') return s;
+    const m = String(s).trim().replace(',', '.').match(/^([\d.]+)\s*([KMGTP])?i?B?$/i);
+    if (!m) return 0;
+    const mult = { '': 1, K: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15 }[(m[2] || '').toUpperCase()] || 1;
+    return parseFloat(m[1]) * mult;
+  }
+
+  const DISK_RE = /^(sd[a-z]+|hd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+|xvd[a-z]+)$/;
+  const isStorageDevice = (dev) => DISK_RE.test(dev && dev.name || '');
+  function diskLabel(dev) {
+    const parts = [dev.name];
+    if (dev.tran) parts.push(dev.tran);
+    if (dev.model) parts.push(dev.model.trim().replace(/\s+/g, ' '));
+    return parts.join(' ');
+  }
+  function devMounts(dev) {
+    return [dev.mountpoint].concat(dev.mountpoints || []).filter(Boolean);
+  }
+
+  // ── Canvas helper (guarded backing-store resize) ─────────────
+  function makeCanvas(el) {
+    const ctx = el.getContext('2d');
+    let lw = 0, lh = 0, ld = 0;
+    return {
+      el, ctx,
+      prep() {
+        const w = el.clientWidth, h = el.clientHeight, d = window.devicePixelRatio || 1;
+        if (!w || !h) return { w: 0, h: 0 };
+        if (w !== lw || h !== lh || d !== ld) {
+          el.width = Math.round(w * d);
+          el.height = Math.round(h * d);
+          lw = w; lh = h; ld = d;
+        }
+        ctx.setTransform(d, 0, 0, d, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        return { w, h };
+      }
+    };
+  }
+
+  function gridlines(ctx, w, h) {
+    ctx.strokeStyle = 'rgba(107,114,128,0.14)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = Math.round((h / 4) * i) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-24, y); ctx.lineTo(w + 24, y); ctx.stroke();   // overscan so the CSS glide never bares an edge
+    }
+  }
+
+  // xOff (px) shifts the whole polyline left — a fraction of one step, fed by the
+  // scroll loop, so the graph flows instead of jumping per sample.
+  // `hq` (high quality: gradient fill + glow) is used only on the settled frame;
+  // mid-scroll frames draw a bare stroke, which the software compositor on this
+  // GPU-less box can actually keep up with.
+  function plotLine(ctx, hist, maxPts, vmax, W, H, color, fill, xOff, glow) {
+    if (!hist || hist.length < 2 || vmax <= 0) return;
+    xOff = xOff || 0;
+    const n = hist.length, step = W / (maxPts - 1), pad = 3;
+    const pts = hist.map((v, i) => ({
+      x: W - (n - 1 - i) * step - xOff,
+      y: H - pad - Math.max(0, Math.min(1, v / vmax)) * (H - 2 * pad),
+    }));
+    const last = pts[pts.length - 1];
+    if (fill) {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, color.replace(/[\d.]+\)$/, '0.16)'));
+      g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, H);
+      pts.forEach((p) => ctx.lineTo(p.x, p.y));
+      if (last.x < W) ctx.lineTo(W, last.y);
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 5; }
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    if (last.x < W) ctx.lineTo(W, last.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Canvas instances ────────────────────────────────────────
+  const sysGraphCv = makeCanvas($('sys-graph'));
+  const kpiCpuCv   = makeCanvas($('kpi-cpu-spark'));
+  const kpiRamCv   = makeCanvas($('kpi-ram-spark'));
+  const kpiStoreCv = makeCanvas($('kpi-store-spark'));
+  const kpiNetCv   = makeCanvas($('kpi-net-spark'));
+  const netbCv     = makeCanvas($('netb-canvas'));
+
+  const cpuHist = [], ramHist = [], storeHist = [], netHist = [];
+
+  // ── Graph scroll ────────────────────────────────────────────
+  // The two full graphs flow left continuously; a new sample slides in from the
+  // right over the sample interval. Driven by a low-rate rAF loop (this box has
+  // no GPU compositing, so CSS-transform animation is far more expensive than a
+  // ~12fps canvas repaint). The loop early-outs the moment nothing is moving.
+  const SYS_MS = 2500, NET_MS = 2000;
+  // Frames/sec for the scroll glide. This box has no GPU compositing, so every
+  // extra redraw costs real CPU — 8fps with an ease-out reads as smooth motion
+  // for ~1px/frame of travel. Bump toward 30 for glassier flow at 2–3× the cost,
+  // or set to 0 to disable the glide entirely (instant per-sample redraw).
+  const GLIDE_FPS = 10;
+  const GLIDE_SPAN = 0.85;                      // finish a touch early → brief idle tail before the next sample
+  let sysSampleTs = performance.now() - SYS_MS;
+  let netSampleTs = performance.now() - NET_MS;
+  const scrollFrac = (ts, span) => {
+    const f = (performance.now() - ts) / (span * GLIDE_SPAN);
+    if (f <= 0) return 0;
+    if (f >= 1) return 1;
+    return 1 - (1 - f) * (1 - f);               // ease-out: most travel up front
+  };
+  const offPx = (frac, w) => frac * w / (GRAPH_MAX - 1);
+
+  // glow (canvas shadowBlur) is a software-rasterised gaussian — cheap once per
+  // sample, pricey mid-scroll on this GPU-less box. So: glow only on the settled frame.
+  function drawSysGraph(frac) {
+    const s = sysGraphCv.prep();
+    if (!s.w) return;
+    const settled = frac == null || frac >= 1;
+    const x = offPx(settled ? 1 : frac, s.w);
+    gridlines(sysGraphCv.ctx, s.w, s.h);
+    plotLine(sysGraphCv.ctx, ramHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(129,199,132,0.9)', settled, x, settled);
+    plotLine(sysGraphCv.ctx, cpuHist, GRAPH_MAX, 100, s.w, s.h, 'rgba(79,195,247,0.95)', settled, x, settled);
+  }
+  function drawNetBottom(frac) {
+    const s = netbCv.prep();
+    if (!s.w) return;
+    const settled = frac == null || frac >= 1;
+    gridlines(netbCv.ctx, s.w, s.h);
+    const vmax = Math.max.apply(null, [64].concat(netHist));
+    plotLine(netbCv.ctx, netHist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.9)', settled, offPx(settled ? 1 : frac, s.w), settled);
+  }
+  function sparkPct(cv, hist, color) {
+    const s = cv.prep();
+    if (!s.w) return;
+    plotLine(cv.ctx, hist, GRAPH_MAX, 100, s.w, s.h, color, true, 0, false);
+  }
+  function sparkNet(cv, hist) {
+    const s = cv.prep();
+    if (!s.w) return;
+    const vmax = Math.max.apply(null, [64].concat(hist));
+    plotLine(cv.ctx, hist, GRAPH_MAX, vmax, s.w, s.h, 'rgba(79,195,247,0.85)', true, 0, false);
+  }
+  function drawKpiSparks() {                    // sparks are tiny — redraw on tick, no scroll
+    sparkPct(kpiCpuCv, cpuHist, 'rgba(79,195,247,0.9)');
+    sparkPct(kpiRamCv, ramHist, 'rgba(129,199,132,0.9)');
+    sparkNet(kpiNetCv, netHist);
+  }
+  function drawStoreSpark() {
+    sparkPct(kpiStoreCv, storeHist, 'rgba(255,183,77,0.7)');
+  }
+
+  // ── low-rate scroll loop ────────────────────────────────────
+  const GLIDE_MIN_DT = GLIDE_FPS > 0 ? 1000 / GLIDE_FPS : Infinity;
+  let glideOn = false, glideLast = 0;
+  function glideFrame(now) {
+    const sysF = scrollFrac(sysSampleTs, SYS_MS);
+    const netF = scrollFrac(netSampleTs, NET_MS);
+    if (sysF >= 1 && netF >= 1) {               // both settled — final frame, then stop
+      drawSysGraph(1); drawNetBottom(1);
+      glideOn = false;
+      return;
+    }
+    if (now - glideLast >= GLIDE_MIN_DT) {
+      glideLast = now;
+      drawSysGraph(sysF);
+      drawNetBottom(netF);
+    }
+    requestAnimationFrame(glideFrame);
+  }
+  function kickGlide() {
+    if (document.hidden) return;
+    if (GLIDE_FPS <= 0) { drawSysGraph(1); drawNetBottom(1); return; }
+    if (glideOn) return;
+    glideOn = true; glideLast = 0;
+    requestAnimationFrame(glideFrame);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kickGlide(); });
+
+  function redrawCanvases() {                   // resize — full repaint
+    drawSysGraph(scrollFrac(sysSampleTs, SYS_MS));
+    drawNetBottom(scrollFrac(netSampleTs, NET_MS));
+    drawKpiSparks();
+    drawStoreSpark();
+    kickGlide();
+  }
+
+  // ── Node refs ───────────────────────────────────────────────
+  const clockEl     = $('clock');
+  const hostEl      = $('tb-hostname');
+  const upEl        = $('tb-uptime');
+  const kpiCpuVal   = $('kpi-cpu-val');
+  const kpiRamVal   = $('kpi-ram-val');
+  const kpiStoreVal = $('kpi-store-val');
+  const kpiNetVal   = $('kpi-net-val');
+  const kpiNetSub   = $('kpi-net-sub');
+  const svcRunning  = $('svc-running');
+  const svcFailed   = $('svc-failed');
+  const netbRx      = $('netb-rx');
+  const netbTx      = $('netb-tx');
+  const batPill     = $('bat-pill');
+  const batPctEl    = $('bat-pct');
+
+  // ── Row pools (built once) ──────────────────────────────────
+  const svcRows = [];
+  (function buildSvcRows() {
+    const box = $('svc-fail-list');
+    for (let i = 0; i < 5; i++) {
+      const el = document.createElement('div');
+      el.className = 'svc-fail-row';
+      el.hidden = true;
+      const n = document.createElement('span'); n.className = 'n';
+      const d = document.createElement('span'); d.className = 'd';
+      el.append(n, d);
+      box.append(el);
+      svcRows.push({ el, name: n, desc: d });
+    }
+  })();
+
+  const alertRows = [];
+  (function buildAlertRows() {
+    const box = $('alert-list');
+    for (let i = 0; i < 8; i++) {
+      const el = document.createElement('div');
+      el.className = 'alert-row';
+      el.hidden = true;
+      const dot = document.createElement('span'); dot.className = 'alert-dot';
+      const label = document.createElement('span'); label.className = 'alert-label';
+      const detail = document.createElement('span'); detail.className = 'alert-detail';
+      el.append(dot, label, detail);
+      box.append(el);
+      alertRows.push({ el, dot, label, detail });
+    }
+  })();
+
+  const coreEls = [];
+  function renderCores(cores) {
+    const box = $('core-bars');
+    const n = Math.min(cores.length, 8);
+    if (coreEls.length !== n) {
+      box.textContent = '';
+      coreEls.length = 0;
+      for (let i = 0; i < n; i++) {
+        const item = document.createElement('div'); item.className = 'bar-item';
+        const lab = document.createElement('div'); lab.className = 'bar-label';
+        const l = document.createElement('span'); l.textContent = 'Core ' + i;
+        const v = document.createElement('span');
+        lab.append(l, v);
+        const track = document.createElement('div'); track.className = 'bar-track';
+        const fill = document.createElement('div'); fill.className = 'bar-fill';
+        track.append(fill);
+        item.append(lab, track);
+        box.append(item);
+        coreEls.push({ v, fill, w: '', cls: 'bar-fill' });
+      }
+    }
+    // scaleX carries the CSS ease (see .bar-fill) so a spike glides in instead
+    // of snapping — transform, not width, so it never forces a relayout.
+    for (let i = 0; i < n; i++) {
+      const p = Math.max(0, Math.min(100, Math.round(cores[i] || 0)));
+      const el = coreEls[i];
+      const sx = 'scaleX(' + (p / 100).toFixed(3) + ')';
+      if (el.w !== sx) { el.fill.style.transform = sx; el.w = sx; }
+      setText(el.v, p + '%');
+      const cls = 'bar-fill' + (p > 80 ? ' danger' : p > 60 ? ' warn' : '');
+      if (el.cls !== cls) { el.fill.className = cls; el.cls = cls; }
+    }
+  }
+
+  // ── Shared data for alert computation ───────────────────────
+  let lastStats = null, lastServices = null, lastBattery = null;
+  let lastLsblkRaw = null, lastLsblkData = null, lastDiskIo = null;
+  let cpuSustain = 0;
+
+  function renderAlerts(list) {
+    for (let i = 0; i < alertRows.length; i++) {
+      const row = alertRows[i];
+      if (i < list.length) {
+        const sev = list[i][0], label = list[i][1], detail = list[i][2] || '';
+        row.el.hidden = false;
+        const dotCls = 'alert-dot sev-' + sev;
+        if (row.dot.className !== dotCls) row.dot.className = dotCls;
+        row.label.textContent = label;
+        row.detail.textContent = detail;
+      } else {
+        row.el.hidden = true;
+      }
+    }
+  }
+
+  function recomputeAlerts() {
+    const a = [];
+    const s = lastStats, b = lastBattery, sv = lastServices;
+    if (s) {
+      if (s.tempC != null && s.tempC >= 85) a.push(['red', 'CPU TEMP', s.tempC + '°C']);
+      else if (s.tempC != null && s.tempC >= 75) a.push(['orange', 'CPU TEMP', s.tempC + '°C']);
+      const rp = (s.ram && s.ram.percent) || 0;
+      if (rp >= 92) a.push(['red', 'RAM PRESSURE', rp + '%']);
+      else if (rp >= 82) a.push(['orange', 'RAM PRESSURE', rp + '%']);
+      if (cpuSustain >= 3) a.push(['orange', 'CPU SUSTAINED', ((s.cpu && s.cpu.avg) || 0) + '%']);
+    }
+    if (b && b.status === 'Discharging') {
+      if (b.capacity < 15) a.push(['red', 'BATTERY LOW', b.capacity + '%']);
+      else if (b.capacity < 25) a.push(['orange', 'BATTERY LOW', b.capacity + '%']);
+    }
+    // DISK FULL — only if lsblk exposes a usage %; the current backend
+    // (lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,...) does not, so this stays inert.
+    diskFullAlerts().forEach((x) => a.push(x));
+    if (sv && sv.failedCount > 0) a.push(['orange', sv.failedCount + ' FAILED UNITS', '']);
+    if (!a.length) a.push(['green', 'keine Alerts · nominal', '']);
+    renderAlerts(a);
+  }
+
+  function diskFullAlerts() {
+    const out = [];
+    if (!lastLsblkData) return out;
+    const walk = (dev) => {
+      const u = dev['fsuse%'] || dev.fsusePercent;
+      if (u != null) {
+        const n = parseFloat(String(u).replace('%', ''));
+        if (!isNaN(n) && n >= 92) {
+          out.push(['red', 'DISK FULL', (dev.mountpoint || dev.name) + ' ' + Math.round(n) + '%']);
+        }
+      }
+      (dev.children || []).forEach(walk);
+    };
+    (lastLsblkData.blockdevices || []).forEach(walk);
+    return out;
+  }
+
+  // ── System stats tick (one call fans out) ──────────────────
+  async function tickSystem() {
+    if (!api) return;
+    let d;
+    try { d = await api.getSystemStats(); } catch (e) { return; }
+    if (!d) return;
+    lastStats = d;
+    const cpu = (d.cpu && d.cpu.avg) || 0;
+    const ram = (d.ram && d.ram.percent) || 0;
+    remember(cpuHist, cpu);
+    remember(ramHist, ram);
+    setText(kpiCpuVal, cpu + '%', true);
+    setText(kpiRamVal, ram + '%', true);
+    setText(upEl, '· up ' + fmtUptime(d.uptime));
+    renderCores((d.cpu && d.cpu.cores) || []);
+    sysSampleTs = performance.now();
+    drawKpiSparks();
+    kickGlide();
+    cpuSustain = cpu >= 92 ? cpuSustain + 1 : 0;
+    recomputeAlerts();
+  }
+
+  // ── Services tick ─────────────────────────────────────────
+  async function tickServices() {
+    if (!api) return;
+    let d;
+    try { d = await api.getServices(); } catch (e) { return; }
+    if (!d) return;
+    lastServices = d;
+    setText(svcRunning, 'running ' + (d.runningCount != null ? d.runningCount : '—'));
+    const fc = d.failedCount || 0;
+    setText(svcFailed, 'failed ' + fc, true);
+    const cls = 'svc-val ' + (fc > 0 ? 'is-red' : 'is-green');
+    if (svcFailed.className !== cls) svcFailed.className = cls;
+    const failed = d.failed || [];
+    for (let i = 0; i < svcRows.length; i++) {
+      if (i < Math.min(failed.length, 5)) {
+        svcRows[i].el.hidden = false;
+        setText(svcRows[i].name, failed[i].name || '');
+        setText(svcRows[i].desc, failed[i].desc || '');
+      } else {
+        svcRows[i].el.hidden = true;
+      }
+    }
+    recomputeAlerts();
+  }
+
+  // ── Network tick ──────────────────────────────────────────
+  async function tickNet() {
+    if (!api) return;
+    let d;
+    try { d = await api.getNet(); } catch (e) { return; }
+    if (!d) return;
+    remember(netHist, d.rx || 0);
+    setText(kpiNetVal, '↓ ' + fmtRate(d.rx || 0), true);
+    setText(kpiNetSub, '↑ ' + fmtRate(d.tx || 0));
+    setText(netbRx, fmtRate(d.rx || 0), true);
+    setText(netbTx, fmtRate(d.tx || 0), true);
+    sparkNet(kpiNetCv, netHist);
+    netSampleTs = performance.now();
+    kickGlide();
+  }
+
+  // ── lsblk + disk I/O ──────────────────────────────────────
+  let diskIoBusy = false;
+  const dioRows = new Map();
+
+  function renderLsblkTree() {
+    const el = $('lsblk-content');
+    el.textContent = '';
+    if (!lastLsblkData) { el.textContent = '—'; return; }
+    const head = document.createElement('div');
+    head.className = 'lsblk-head';
+    head.textContent = 'NAME'.padEnd(16) + 'SIZE'.padEnd(9) + 'TYPE'.padEnd(7) + 'MOUNT';
+    el.append(head);
+    const add = (dev, depth) => {
+      const line = document.createElement('div');
+      const ind = '  '.repeat(depth);
+      const mp = devMounts(dev)[0] || '';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = depth === 0 ? 'lb-d' : 'lb-p';
+      nameSpan.textContent = (ind + (dev.name || '')).padEnd(16);
+      const sizeSpan = document.createElement('span');
+      sizeSpan.className = 'lb-s';
+      sizeSpan.textContent = String(dev.size || '').padEnd(9);
+      const rest = document.createElement('span');
+      rest.textContent = String(dev.type || '').padEnd(7) + mp;
+      line.append(nameSpan, sizeSpan, rest);
+      el.append(line);
+      (dev.children || []).forEach((c) => add(c, depth + 1));
+    };
+    (lastLsblkData.blockdevices || []).forEach((d) => add(d, 0));
+  }
+
+  function updateStorageKpi() {
+    let pct = null, rootDev = null, biggest = null, biggestBytes = -1;
+    const walk = (dev) => {
+      const mps = devMounts(dev);
+      if (mps.indexOf('/') !== -1) {
+        rootDev = dev;
+        const u = dev['fsuse%'];
+        if (u != null) {
+          const n = parseFloat(String(u).replace('%', ''));
+          if (!isNaN(n)) pct = Math.round(n);
+        }
+      }
+      const b = parseSize(dev.size);
+      if (dev.type === 'disk' && b > biggestBytes) { biggestBytes = b; biggest = dev; }
+      (dev.children || []).forEach(walk);
+    };
+    (lastLsblkData && lastLsblkData.blockdevices || []).forEach(walk);
+
+    if (pct != null) {
+      setText(kpiStoreVal, pct + '%', true);
+      remember(storeHist, pct);
+    } else {
+      const ref = rootDev || biggest;
+      setText(kpiStoreVal, ref ? String(ref.size || '—') : '—', true);
+      remember(storeHist, 0);
+    }
+    drawStoreSpark();
+  }
+
+  function rebuildDiskIoRows() {
+    const el = $('disk-io-list');
+    el.textContent = '';
+    dioRows.clear();
+    const devs = (lastLsblkData && lastLsblkData.blockdevices) || [];
+    const list = devs.filter((d) => isStorageDevice(d) || (lastDiskIo && lastDiskIo[d.name]));
+    if (!list.length) {
+      const row = document.createElement('div');
+      row.className = 'dio-row';
+      const n = document.createElement('span'); n.className = 'dio-name'; n.textContent = 'Keine Medien';
+      const r = document.createElement('span'); r.className = 'dio-read'; r.textContent = '0 KB/s';
+      const w = document.createElement('span'); w.className = 'dio-write'; w.textContent = '0 KB/s';
+      row.append(n, r, w);
+      el.append(row);
+      return;
+    }
+    list.forEach((dev) => {
+      const row = document.createElement('div');
+      row.className = 'dio-row';
+      const name = document.createElement('span');
+      name.className = 'dio-name';
+      name.title = diskLabel(dev);
+      name.textContent = dev.name;
+      if (dev.tran) {
+        const m = document.createElement('span');
+        m.className = 'dio-meta';
+        m.textContent = ' ' + dev.tran;
+        name.append(m);
+      }
+      const r = document.createElement('span'); r.className = 'dio-read'; r.textContent = '—';
+      const w = document.createElement('span'); w.className = 'dio-write'; w.textContent = '—';
+      row.append(name, r, w);
+      el.append(row);
+      dioRows.set(dev.name, { r, w });
+    });
+    updateDiskIoNumbers();
+  }
+
+  function updateDiskIoNumbers() {
+    dioRows.forEach((cell, name) => {
+      const io = (lastDiskIo && lastDiskIo[name]) || { read: 0, write: 0 };
+      setText(cell.r, formatIo(io.read || 0));
+      setText(cell.w, formatIo(io.write || 0));
+    });
+  }
+
+  async function tickLsblk() {
+    if (!api) return;
+    let raw;
+    try { raw = await api.getLsblk(); } catch (e) { return; }
+    const spin = $('lsblk-spin');
+    if (spin) spin.hidden = true;
+    if (raw === lastLsblkRaw) return;      // unchanged — do not re-render tree
+    lastLsblkRaw = raw;
+    try { lastLsblkData = JSON.parse(raw); } catch (e) { lastLsblkData = null; }
+    renderLsblkTree();
+    updateStorageKpi();
+    rebuildDiskIoRows();
+    recomputeAlerts();
+  }
+
+  async function tickDiskIo() {
+    if (!api || diskIoBusy) return;
+    diskIoBusy = true;
+    try {
+      const d = await api.getDiskIo();
+      if (d) {
+        lastDiskIo = d;
+        let missing = false;
+        for (const k in d) {
+          if (d[k] && !dioRows.has(k) && (d[k].read || d[k].write)) { missing = true; break; }
+        }
+        if (missing && lastLsblkData) rebuildDiskIoRows();
+        else updateDiskIoNumbers();
+      }
+    } catch (e) {
+      /* ignore */
+    } finally {
+      diskIoBusy = false;
+    }
+  }
+
+  // ── Weather ──────────────────────────────────────────────
+  let wBuilt = false, wStatus, wMain, wTemp, wDesc, wFeels;
+  const wItems = {};
+
+  function buildWeather() {
+    const body = $('weather-body');
+    body.textContent = '';
+    wStatus = document.createElement('div'); wStatus.className = 'w-status'; wStatus.textContent = 'Lade…';
+    wMain = document.createElement('div'); wMain.className = 'weather-main'; wMain.hidden = true;
+    wTemp = document.createElement('div'); wTemp.className = 'weather-temp'; wTemp.textContent = '—°';
+    const descWrap = document.createElement('div'); descWrap.className = 'weather-desc';
+    wDesc = document.createElement('span');
+    wFeels = document.createElement('span'); wFeels.className = 'w-muted';
+    descWrap.append(wDesc, document.createElement('br'), wFeels);
+    wMain.append(wTemp, descWrap);
+    const grid = document.createElement('div'); grid.className = 'weather-details'; grid.hidden = true;
+    [['hum', 'Luftfeuchte'], ['wind', 'Wind'], ['vis', 'Sicht'], ['src', 'Quelle']].forEach(([k, label]) => {
+      const it = document.createElement('div'); it.className = 'weather-item';
+      const l = document.createElement('div'); l.className = 'wlabel'; l.textContent = label;
+      const v = document.createElement('div'); v.className = 'wval'; v.textContent = '—';
+      it.append(l, v);
+      grid.append(it);
+      wItems[k] = v;
+    });
+    wItems.grid = grid;
+    body.append(wStatus, wMain, grid);
+    wBuilt = true;
+  }
+
+  async function tickWeather() {
+    if (!api) return;
+    if (!wBuilt) buildWeather();
+    let d;
+    try { d = await api.getWeather('Schwaebisch Hall'); } catch (e) { d = null; }
+    let cur = null;
+    if (d) { try { cur = d.current_condition && d.current_condition[0]; } catch (e) { cur = null; } }
+    if (!cur) {
+      wStatus.hidden = false;
+      wStatus.textContent = d ? 'Parse-Fehler' : 'Nicht verfügbar';
+      wMain.hidden = true;
+      wItems.grid.hidden = true;
+      return;
+    }
+    wStatus.hidden = true;
+    wMain.hidden = false;
+    wItems.grid.hidden = false;
+    setText(wTemp, (cur.temp_C != null ? cur.temp_C : '—') + '°');
+    setText(wDesc, (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '');
+    setText(wFeels, 'Gefühlt ' + (cur.FeelsLikeC != null ? cur.FeelsLikeC : '—') + '°');
+    setText(wItems.hum, (cur.humidity != null ? cur.humidity : '—') + '%');
+    setText(wItems.wind, (cur.windspeedKmph != null ? cur.windspeedKmph : '—') + ' km/h');
+    setText(wItems.vis, (cur.visibility != null ? cur.visibility : '—') + ' km');
+    setText(wItems.src, 'wttr.in');
+  }
+
+  // ── RSS ──────────────────────────────────────────────────
+  let rssKey = null;
+  async function tickRss() {
+    if (!api) return;
+    const el = $('rss-list');
+    let xml;
+    try { xml = await api.getRss('https://www.heise.de/rss/heise-atom.xml'); } catch (e) { xml = null; }
+    const showEmpty = (key, msg) => {
+      if (rssKey === key) return;
+      rssKey = key;
+      el.textContent = '';
+      const d = document.createElement('div');
+      d.className = 'rss-empty';
+      d.textContent = msg;
+      el.append(d);
+    };
+    if (!xml) return showEmpty('__err', 'Nicht verfügbar');
+    let doc;
+    try { doc = new DOMParser().parseFromString(xml, 'application/xml'); } catch (e) { return; }
+    const items = Array.prototype.slice.call(doc.querySelectorAll('item,entry'), 0, 14);
+    if (!items.length) return showEmpty('__empty', 'Keine Einträge');
+    const first = items[0];
+    const key = (first.querySelector('title') && first.querySelector('title').textContent || '') + '|' +
+      (first.querySelector('pubDate,published,updated') && first.querySelector('pubDate,published,updated').textContent || '') + '|' +
+      items.length;
+    if (key === rssKey) return;
+    rssKey = key;
+    el.textContent = '';
+    items.forEach((it) => {
+      const title = (it.querySelector('title') && it.querySelector('title').textContent || '(kein Titel)').trim();
+      const dateRaw = it.querySelector('pubDate,published,updated') && it.querySelector('pubDate,published,updated').textContent || '';
+      const linkEl = it.querySelector('link');
+      let link = (linkEl && (linkEl.getAttribute('href') || linkEl.textContent) || '').trim();
+      const row = document.createElement('div');
+      row.className = 'rss-item';
+      const t = document.createElement('div'); t.className = 'rss-title'; t.textContent = title;
+      const dd = document.createElement('div'); dd.className = 'rss-date';
+      dd.textContent = dateRaw
+        ? new Date(dateRaw).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+      row.append(t, dd);
+      if (/^https?:\/\//i.test(link)) {
+        row.classList.add('is-link');
+        row.addEventListener('click', () => window.open(link, '_blank', 'noopener'));
+      }
+      el.append(row);
+    });
+  }
+
+  // ── Battery (topbar pill) ────────────────────────────────
+  async function tickBattery() {
+    if (!api) return;
+    let d;
+    try { d = await api.getBattery(); } catch (e) { d = null; }
+    if (!d) {
+      lastBattery = null;
+      batPill.hidden = true;
+      recomputeAlerts();
+      return;
+    }
+    lastBattery = d;
+    batPill.hidden = false;
+    const pct = d.capacity;
+    setText(batPctEl, '⚡ ' + pct + '%');
+    const cls = 'bat-pill ' + (pct > 40 ? 'is-green' : pct >= 20 ? 'is-orange' : 'is-red');
+    if (batPill.className !== cls) batPill.className = cls;
+    const parts = [];
+    if (d.status) parts.push(d.status);
+    if (d.timeLeft) {
+      const h = Math.floor(d.timeLeft / 3600), m = Math.floor((d.timeLeft % 3600) / 60);
+      parts.push((h > 0 ? h + 'h ' : '') + m + 'm');
+    }
+    if (d.watts) parts.push(d.watts.toFixed(1) + ' W');
+    batPill.title = parts.join(' · ');
+    recomputeAlerts();
+  }
+
+  // ── Notes ────────────────────────────────────────────────
+  (function initNotes() {
+    const t = $('notes-input');
+    if (!api) return;
+    api.loadNotes().then((v) => { if (typeof v === 'string') t.value = v; }).catch(() => {});
+    let st;
+    t.addEventListener('input', () => {
+      clearTimeout(st);
+      st = setTimeout(() => api.saveNotes(t.value), 1500);
+    });
+  })();
+
+  // ── Terminal — spawn native xterm (geometry logic unchanged) ─
+  let syncTerminalGeometry = () => {};
+  let spawnDashboardTerminal = () => {};
+  (function initTerminal() {
+    if (!api) return;
+    const wrapper = $('terminal-wrapper');
+    const getTerminalGeometry = () => {
+      const r = wrapper.getBoundingClientRect();
+      return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    syncTerminalGeometry = () => api.updateTerminalGeometry && api.updateTerminalGeometry(getTerminalGeometry());
+    spawnDashboardTerminal = () => { if (api && api.spawnTerminal) api.spawnTerminal(getTerminalGeometry()); };
+    $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
+    $('term-btn-clear').addEventListener('click', () => api.termClear(), true);
+    $('term-btn-close').addEventListener('click', () => api.closeDashboard(), true);
+  })();
+
+  // ── Single resize handler (canvases + terminal geometry) ──
+  let resizeT, termT;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(redrawCanvases, 120);
+    clearTimeout(termT);
+    termT = setTimeout(syncTerminalGeometry, 120);
+  });
+
+  // ── Storage hotplug ──────────────────────────────────────
+  let storageUnsub = null;
+  if (api && api.onStorageChanged) {
+    storageUnsub = api.onStorageChanged(() => { tickLsblk(); tickDiskIo(); });
+  }
+
+  // ── Teardown ─────────────────────────────────────────────
+  window.addEventListener('beforeunload', () => {
+    glideOn = false;
+    timers.forEach(clearInterval);
+    try { if (storageUnsub) storageUnsub(); } catch (e) {}
+  });
+
+  // ── Hostname (topbar + boot share one call) ──────────────
+  const hostnamePromise = (api && api.getHostname ? api.getHostname() : Promise.resolve(''))
+    .then((h) => h || '')
+    .catch(() => '');
+  hostnamePromise.then((h) => setText(hostEl, h || 'local'));
+
+  // one extra stats call so the boot feed has real numbers to show
+  const statsPromise = (api && api.getSystemStats ? api.getSystemStats() : Promise.resolve(null))
+    .catch(() => null);
+
+  // ── Polling (starts immediately, independent of boot) ────
+  function startPolling() {
+    every(() => setText(clockEl, nowStr()), 1000);
+    if (!api) return;
+    every(tickSystem, SYS_MS);
+    every(tickNet, NET_MS);
+    every(tickServices, 8000);
+    every(tickDiskIo, 4000);
+    every(tickLsblk, 30000);
+    every(tickBattery, 30000);
+    every(tickWeather, 900000);
+    every(tickRss, 1200000);
+  }
+
+  // ── Boot / welcome sequence (~2.6s) ─────────────────────
+  async function runBoot() {
+    const boot = $('boot');
+    if (!boot) return;
+    // Sicherheitsnetz: falls die Sequenz hängt/wirft, Overlay spätestens nach 7s weg.
+    const failsafe = setTimeout(() => { const b = $('boot'); if (b) b.remove(); }, 7000);
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const logo  = $('boot-logo');
+    const tag   = $('boot-tag');
+    const feed  = $('boot-feed');
+    const barEl = boot.querySelector('.boot-bar');
+    const fill  = $('boot-bar-fill');
+    const ready = $('boot-ready');
+
+    const addLine = (k, v) => {
+      const row = document.createElement('div');
+      row.className = 'bl';
+      const a = document.createElement('span'); a.className = 'ok'; a.textContent = 'OK';
+      const b = document.createElement('span'); b.className = 'k';  b.textContent = k;
+      const c = document.createElement('span'); c.className = 'v';  c.textContent = v;
+      row.append(a, b, c);
+      feed.append(row);
+      requestAnimationFrame(() => row.classList.add('show'));
+    };
+
+    try {
+      await wait(40);
+      logo.classList.add('show');
+      await wait(240);
+      logo.classList.add('glitch');
+      await wait(190);
+      logo.classList.remove('glitch');
+      tag.classList.add('show');
+      await wait(170);
+
+      let host = '';
+      try { host = await hostnamePromise; } catch (e) {}
+      let st = null;
+      try { st = await Promise.race([statsPromise, wait(350).then(() => null)]); } catch (e) {}
+
+      const cores = st && st.cpu && st.cpu.cores ? st.cpu.cores.length : 0;
+      const gb = st && st.ram && st.ram.total ? Math.round(st.ram.total / 1024) : 0;
+      const lines = [
+        ['host',      (host || 'local system').toUpperCase()],
+        ['kernel',    (st && st.kernel) ? st.kernel : 'linux'],
+        ['processor', cores ? cores + ' cores' : 'online'],
+        ['memory',    gb ? gb + ' GB' : 'online'],
+        ['uptime',    (st && st.uptime) ? fmtUptime(st.uptime) : '—'],
+        ['interface', 'ready'],
+      ];
+      for (const [k, v] of lines) { addLine(k, v); await wait(70); }
+
+      await wait(110);
+      barEl.classList.add('show');
+      await wait(20);
+      fill.style.width = '100%';
+      await wait(560);
+
+      ready.classList.add('show');
+      await wait(340);
+
+      boot.classList.add('done');
+      await wait(360);
+    } catch (e) {
+      /* egal — Overlay unten trotzdem entfernen */
+    } finally {
+      clearTimeout(failsafe);
+      const b = $('boot');
+      if (b) b.remove();
+    }
+  }
+
+  // ── Go ──────────────────────────────────────────────────
+  startPolling();
+  runBoot().then(spawnDashboardTerminal).catch(spawnDashboardTerminal);
+})();
+</script>
+</body>
+</html>
