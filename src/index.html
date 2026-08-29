@@ -1384,19 +1384,19 @@
   }
 
   // ── Terminal-Stacking ────────────────────────────────────
-  // Ein Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über
-  // den nativen xterm — der verschwände dann hinter dem Rahmen. Also den xterm
-  // nach jeder Interaktion zurück nach oben holen (gedrosselt, kein Dauertimer).
+  // Ein Klick aufs Dashboard hebt das Electron-Fenster im "unten"-Band über den
+  // nativen xterm — der verschwände dann hinter dem Rahmen. Also den xterm danach
+  // zurück nach oben holen. Der Raise blitzt den xterm kurz neu, darum: pro
+  // Klick-Burst nur EIN (verzögerter) Trigger, Klicks im Terminal-Bereich selbst
+  // ignorieren (die gehen ohnehin an den xterm). Fokuswechsel deckt main.js ab.
   if (api && api.raiseTerminal) {
-    let raiseT = 0;
-    const bounceTerminal = () => {
-      const now = performance.now();
-      if (now - raiseT < 120) return;
-      raiseT = now;
-      api.raiseTerminal();
+    let pending = null;
+    const bounceTerminal = (e) => {
+      if (pending) return;
+      if (e && e.target && e.target.closest && e.target.closest('#terminal-card')) return;
+      pending = setTimeout(() => { pending = null; api.raiseTerminal(); }, 110);
     };
     window.addEventListener('pointerdown', bounceTerminal, true);
-    window.addEventListener('focus', bounceTerminal);
   }
 
   // ── Storage hotplug ──────────────────────────────────────

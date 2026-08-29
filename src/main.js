@@ -135,7 +135,7 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
   // Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über den
   // xterm — den xterm danach zurück nach oben holen, sonst verschwindet er.
-  mainWindow.on('focus', () => raiseTerminal());
+  mainWindow.on('focus', () => raiseTerminalSoon());
   log('Dashboard gestartet');
 }
 
@@ -468,7 +468,8 @@ let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
 let termSpawnTs         = 0;   // Zeitpunkt des letzten spawn()
 let applyPropsInFlight  = false;   // volle xprop-Kette läuft gerade
 let geomDebounceTimer   = null;    // Debounce für Geometrie-Updates
-let lastRaiseTs         = 0;       // Throttle für raiseTerminal (Renderer feuert pro Klick)
+let lastRaiseTs         = 0;       // Zeitpunkt des letzten tatsächlichen windowraise
+let raiseTimer          = null;    // Debounce-Timer für raiseTerminalSoon
 
 // xterm im Stacking wieder über das Dashboard heben. windowraise bleibt innerhalb
 // des "unten"-Bands (KWin-Regel below=Force auf wmclass SysDashboardXterm bleibt in
@@ -476,6 +477,20 @@ let lastRaiseTs         = 0;       // Throttle für raiseTerminal (Renderer feue
 function raiseTerminal() {
   if (!termWid) return;
   exec(`xdotool windowraise ${termWid}`, (e) => { if (e) log('raiseTerminal: ' + e.message); });
+}
+
+// Gedrosselte Variante für die Klick-/Fokus-Pfade: jeder Raise blitzt den xterm
+// kurz neu (Expose), also Events in einem 90ms-Fenster zu EINEM Raise bündeln und
+// danach 200ms Ruhe. Der 90ms-Verzug lässt KWins eigenes Click-Raise zuerst
+// durchlaufen → ein Ruck statt zwei.
+function raiseTerminalSoon() {
+  if (!termWid || raiseTimer) return;
+  raiseTimer = setTimeout(() => {
+    raiseTimer = null;
+    if (Date.now() - lastRaiseTs < 200) return;
+    lastRaiseTs = Date.now();
+    raiseTerminal();
+  }, 90);
 }
 
 function toScreenGeom(geom) {
@@ -642,14 +657,9 @@ ipcMain.on('terminal-geometry', (event, geom) => {
   }, 150);
 });
 
-// Renderer feuert das pro Klick/Fokus aufs Dashboard — throttlen, damit nicht
-// bei jedem pointerdown ein xdotool-Prozess startet.
-ipcMain.on('terminal-raise', () => {
-  const now = Date.now();
-  if (now - lastRaiseTs < 100) return;
-  lastRaiseTs = now;
-  raiseTerminal();
-});
+// Renderer feuert das pro Klick aufs Dashboard — gebündelt + gedrosselt raisen,
+// sonst flackert der xterm bei jedem Klick.
+ipcMain.on('terminal-raise', () => { raiseTerminalSoon(); });
 
 ipcMain.on('terminal-restart', () => {
   log('Terminal: manueller Neustart');
