@@ -244,8 +244,17 @@
 
   /* ── Storage / lsblk ── */
   .storage-body { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-  #lsblk-content { flex: 1; min-height: 0; overflow: auto; font: 400 10.5px/1.55 var(--mono); white-space: pre; color: var(--text); }
-  .lsblk-head { color: var(--muted); }
+  /* zweispaltig: links intern, rechts extern — spart vertikale Länge, kein Scrollen */
+  .lsblk-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lsblk-col { min-width: 0; display: flex; flex-direction: column; gap: 4px;
+    border-left: 1px solid var(--border); padding-left: 9px; }
+  .lsblk-col:first-child { border-left: none; padding-left: 0; }
+  .lsblk-cap { flex-shrink: 0; font: 600 9px/1 var(--mono); letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text-2); }
+  .lsblk-tree { flex: 1; min-height: 0; overflow: auto; font: 400 10px/1.5 var(--mono);
+    white-space: pre; color: var(--text); }
+  .lsblk-none { color: var(--muted); }
+  .lb-head { color: var(--muted); }
   .lb-d { color: var(--accent); font-weight: 700; }
   .lb-p { color: var(--green); }
   .lb-s { color: var(--orange); }
@@ -351,6 +360,9 @@
     .weather-temp { font-size: 24px; }
     .weather-item { padding: 5px 8px; }
     .disk-io-list { max-height: 68px; }
+    .lsblk-cols { gap: 7px; }
+    .lsblk-col { padding-left: 7px; }
+    .lsblk-tree { font-size: 9px; line-height: 1.45; }
   }
 </style>
 </head>
@@ -460,7 +472,16 @@
     <div class="card" id="storage-card">
       <div class="card-title">Blockgeräte <span id="lsblk-spin" class="spinner"></span></div>
       <div class="card-body storage-body">
-        <div id="lsblk-content">Lade…</div>
+        <div class="lsblk-cols">
+          <div class="lsblk-col">
+            <div class="lsblk-cap">Intern</div>
+            <div class="lsblk-tree" id="lsblk-internal">Lade…</div>
+          </div>
+          <div class="lsblk-col">
+            <div class="lsblk-cap">Extern</div>
+            <div class="lsblk-tree" id="lsblk-external"><span class="lsblk-none">—</span></div>
+          </div>
+        </div>
         <div id="disk-io-summary">
           <div class="disk-io-head"><span>Medium</span><span>Read</span><span>Write</span></div>
           <div class="disk-io-list" id="disk-io-list">
@@ -979,31 +1000,67 @@
   let diskIoBusy = false;
   const dioRows = new Map();
 
+  // USB = extern; alles andere (nvme/sata/ata/…​ oder ohne tran) = intern
+  const isExternalDev = (d) => String(d && d.tran || '').toLowerCase() === 'usb';
+
   function renderLsblkTree() {
-    const el = $('lsblk-content');
-    el.textContent = '';
-    if (!lastLsblkData) { el.textContent = '—'; return; }
-    const head = document.createElement('div');
-    head.className = 'lsblk-head';
-    head.textContent = 'NAME'.padEnd(16) + 'SIZE'.padEnd(9) + 'TYPE'.padEnd(7) + 'MOUNT';
-    el.append(head);
-    const add = (dev, depth) => {
-      const line = document.createElement('div');
-      const ind = '  '.repeat(depth);
-      const mp = devMounts(dev)[0] || '';
-      const nameSpan = document.createElement('span');
-      nameSpan.className = depth === 0 ? 'lb-d' : 'lb-p';
-      nameSpan.textContent = (ind + (dev.name || '')).padEnd(16);
-      const sizeSpan = document.createElement('span');
-      sizeSpan.className = 'lb-s';
-      sizeSpan.textContent = String(dev.size || '').padEnd(9);
-      const rest = document.createElement('span');
-      rest.textContent = String(dev.type || '').padEnd(7) + mp;
-      line.append(nameSpan, sizeSpan, rest);
-      el.append(line);
-      (dev.children || []).forEach((c) => add(c, depth + 1));
+    const internal = $('lsblk-internal');
+    const external = $('lsblk-external');
+    if (!internal || !external) return;
+    internal.textContent = '';
+    external.textContent = '';
+
+    const devs = lastLsblkData && Array.isArray(lastLsblkData.blockdevices)
+      ? lastLsblkData.blockdevices : null;
+    if (!devs) {
+      // kein JSON (z. B. "lsblk nicht verfügbar") → Rohtext links, rechts leer
+      internal.textContent =
+        (typeof lastLsblkRaw === 'string' && lastLsblkRaw && lastLsblkRaw.trim()[0] !== '{')
+          ? lastLsblkRaw.trim() : '—';
+      external.innerHTML = '<span class="lsblk-none">—</span>';
+      return;
+    }
+
+    const mkHead = (box) => {
+      const h = document.createElement('div');
+      h.className = 'lb-head';
+      h.textContent = 'NAME'.padEnd(12) + 'SIZE'.padEnd(7) + 'TYP'.padEnd(5) + 'MNT';
+      box.append(h);
     };
-    (lastLsblkData.blockdevices || []).forEach((d) => add(d, 0));
+    const addInto = (box) => {
+      const add = (dev, depth) => {
+        const line = document.createElement('div');
+        const ind = '  '.repeat(depth);
+        let mp = devMounts(dev)[0] || '';
+        if (mp.length > 16) mp = '…' + mp.slice(-15);
+        const nameSpan = document.createElement('span');
+        nameSpan.className = depth === 0 ? 'lb-d' : 'lb-p';
+        nameSpan.textContent = (ind + (dev.name || '')).padEnd(12);
+        const sizeSpan = document.createElement('span');
+        sizeSpan.className = 'lb-s';
+        sizeSpan.textContent = String(dev.size || '').padEnd(7);
+        const rest = document.createElement('span');
+        rest.textContent = String(dev.type || '').padEnd(5) + mp;
+        line.append(nameSpan, sizeSpan, rest);
+        box.append(line);
+        (dev.children || []).forEach((c) => add(c, depth + 1));
+      };
+      return add;
+    };
+
+    const ext = devs.filter(isExternalDev);
+    const int = devs.filter((d) => !isExternalDev(d));
+    const left = int.length ? int : devs;          // linke Spalte nie leer lassen
+
+    mkHead(internal);
+    left.forEach((d) => addInto(internal)(d, 0));
+
+    if (int.length && ext.length) {
+      mkHead(external);
+      ext.forEach((d) => addInto(external)(d, 0));
+    } else {
+      external.innerHTML = '<span class="lsblk-none">keine externen Medien</span>';
+    }
   }
 
   function updateStorageKpi() {
