@@ -211,7 +211,9 @@
   .kpi-trend.up   { color: var(--accent); }
   .kpi-trend.up.hot { color: var(--red); }
   .kpi-trend.down { color: color-mix(in srgb, var(--green) 70%, var(--muted)); }
-  .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1.1 var(--display); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; text-shadow: 0 0 16px var(--glow-soft); }
+  .kpi-value { font: 700 clamp(20px, 3.4vh, 31px)/1.1 var(--display); color: var(--text); letter-spacing: .5px; font-variant-numeric: tabular-nums; text-shadow: 0 0 16px var(--glow-soft); transition: color .35s ease; }
+  .kpi-value.warn { color: var(--orange); text-shadow: 0 0 16px color-mix(in srgb, var(--orange) 32%, transparent); }
+  .kpi-value.crit { color: var(--red);    text-shadow: 0 0 18px color-mix(in srgb, var(--red) 38%, transparent); }
   .kpi-sub   { font: 400 10px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
   .kpi-spark { width: 100%; flex: 1 1 auto; min-height: 20px; align-self: stretch; display: block; }
 
@@ -242,7 +244,12 @@
 
   /* ── System status card ── */
   /* mittlere Spalte: kompakte Status-Karte oben, Shortcuts füllen den Rest */
-  #status-card { flex: 0 0 auto; }
+  #status-card { flex: 0 0 auto; transition: border-color .4s ease, box-shadow .4s ease; }
+  /* statischer Farbrand bei aktivem Alert — zieht den Blick, kostet nichts (keine Animation) */
+  #status-card.sev-warn { border-color: color-mix(in srgb, var(--orange) 55%, var(--border)); }
+  #status-card.sev-crit { border-color: color-mix(in srgb, var(--red) 65%, var(--border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 22%, transparent); }
+  #status-card.sev-warn .section-title, #status-card.sev-crit .section-title { color: var(--text-2); }
   .status-body { overflow-y: auto; gap: 0; }
   .status-section + .status-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .section-title { font: 600 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
@@ -495,6 +502,7 @@
     <div class="card kpi-card">
       <div class="kpi-label">RAM<span class="kpi-trend" id="kpi-ram-trend"></span></div>
       <div class="kpi-value" id="kpi-ram-val">—%</div>
+      <div class="kpi-sub" id="kpi-ram-sub"></div>
       <canvas class="kpi-spark" id="kpi-ram-spark"></canvas>
     </div>
     <div class="card kpi-card">
@@ -678,6 +686,14 @@
     return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : Math.round(kb) + ' KB/s';
   }
   const formatIo = fmtRate;
+
+  function fmtGiB(mib) { return ((+mib || 0) / 1024).toFixed(1) + ' G'; }
+
+  function setKpiSeverity(el, v, warnAt, critAt) {
+    if (!el) return;
+    const cls = 'kpi-value' + (v >= critAt ? ' crit' : v >= warnAt ? ' warn' : '');
+    if (el.className !== cls) el.className = cls;
+  }
 
   function fmtUptime(sec) {
     sec = sec || 0;
@@ -889,6 +905,7 @@
   const tbLoad      = $('tb-load');
   const kpiCpuVal   = $('kpi-cpu-val');
   const kpiRamVal   = $('kpi-ram-val');
+  const kpiRamSub   = $('kpi-ram-sub');
   const kpiStoreVal = $('kpi-store-val');
   const kpiNetVal   = $('kpi-net-val');
   const kpiNetSub   = $('kpi-net-sub');
@@ -1054,6 +1071,14 @@
     if (sv && sv.failedCount > 0) a.push(['orange', sv.failedCount + ' FAILED UNITS', '']);
     if (!a.length) a.push(['green', 'keine Alerts · nominal', '']);
     renderAlerts(a);
+    // Status-Karte einfärben nach höchster Schwere (statisch, keine Animation)
+    const card = $('status-card');
+    if (card) {
+      const sev = a.some((x) => x[0] === 'red') ? 'sev-crit'
+                : a.some((x) => x[0] === 'orange') ? 'sev-warn' : '';
+      const cls = 'card' + (sev ? ' ' + sev : '');
+      if (card.className !== cls) card.className = cls;
+    }
   }
 
   function diskFullAlerts() {
@@ -1089,6 +1114,11 @@
       remember(ramHist, ram);
       setText(kpiCpuVal, cpu + '%', true);
       setText(kpiRamVal, ram + '%', true);
+      setKpiSeverity(kpiCpuVal, cpu, 75, 90);
+      setKpiSeverity(kpiRamVal, ram, 82, 92);
+      if (d.ram && d.ram.total) {
+        setText(kpiRamSub, fmtGiB(d.ram.used) + ' / ' + fmtGiB(d.ram.total));
+      }
       setText(upEl, '· up ' + fmtUptime(d.uptime));
       // Temp + Load in die Topbar (Daten kamen schon aus dem Call, lagen nur brach)
       if (d.tempC != null) {
