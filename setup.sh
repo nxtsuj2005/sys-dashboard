@@ -91,4 +91,13 @@ X-KDE-StartupNotify=false
 Hidden=false
 EOF
 
+# ── 6. Selfcheck ────────────────────────────────────────────
+say "Selfcheck"
+if [ -f "$REPO/src/selfcheck.js" ]; then
+  node "$REPO/src/selfcheck.js" || warn "Selfcheck fehlgeschlagen"
+  say "Das Dashboard wiederholt diese Prüfung beim Start und passt sich automatisch an (Kernbalken, Batterie, Perf-Stufe, Shell, systemd)."
+else
+  warn "selfcheck.js nicht gefunden — übersprungen"
+fi
+
 say "Fertig. Start: cd $TARGET && npm start   (oder einmal neu einloggen)"
