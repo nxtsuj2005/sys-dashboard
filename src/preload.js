@@ -1,9 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const hasBattery = process.argv.includes('--sys-dashboard-has-battery=1');
+// Hardware-Profil aus dem Main-Prozess (base64-JSON), bei Fehler null
+let profile = null;
+try {
+  const arg = process.argv.find(a => a.startsWith('--sys-dashboard-profile='));
+  if (arg) profile = JSON.parse(Buffer.from(arg.slice('--sys-dashboard-profile='.length), 'base64').toString('utf8'));
+} catch {}
+
+const hasBattery = profile
+  ? !!profile.battery
+  : process.argv.includes('--sys-dashboard-has-battery=1');
 
 contextBridge.exposeInMainWorld('api', {
   hasBattery,
+  profile,
   // System-Stats
   getSystemStats: ()  => ipcRenderer.invoke('get-system-stats'),
   getHostname: ()     => ipcRenderer.invoke('get-hostname'),
