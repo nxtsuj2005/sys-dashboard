@@ -328,13 +328,45 @@
     pointer-events: all;                /* Header bleibt klickbar */
     position: relative; z-index: 10;
   }
-  .dot-r, .dot-y, .dot-g { width: 10px; height: 10px; border-radius: 50%; cursor: pointer; transition: opacity .15s ease; }
+  .dot-r, .dot-y { width: 10px; height: 10px; border-radius: 50%; cursor: pointer; transition: opacity .15s ease; }
   .dot-r { background: var(--red); }
   .dot-y { background: var(--orange); }
-  .dot-g { background: var(--green); }
-  .dot-r:hover, .dot-y:hover, .dot-g:hover { opacity: .6; }
+  .dot-r:hover, .dot-y:hover { opacity: .6; }
   #terminal-header span { font: 400 10px/1 var(--mono); color: var(--muted); margin-left: 6px; letter-spacing: 1px; }
   #terminal-wrapper { flex: 1; min-height: 0; }
+
+  /* ── Ctrl+K — App-Suche ── */
+  #cmdk {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 7vh;
+    background: rgba(6, 8, 12, 0.55);
+  }
+  #cmdk-box {
+    width: min(560px, 86vw);
+    background: var(--card); border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 80px -20px rgba(0,0,0,.7), inset 0 0 40px -26px var(--glow);
+    overflow: hidden;
+  }
+  #cmdk-input {
+    width: 100%; border: 0; outline: 0;
+    background: var(--panel); color: var(--text);
+    font: 400 14px/1 var(--mono); padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #cmdk-input::placeholder { color: var(--muted); }
+  #cmdk-list { list-style: none; max-height: 44vh; overflow-y: auto; }
+  #cmdk-list li {
+    padding: 9px 16px; font: 400 12px/1.3 var(--mono); color: var(--text-2);
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+  }
+  #cmdk-list li .cmdk-term {
+    margin-left: auto; font-size: 9px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted);
+  }
+  #cmdk-list li.sel { background: var(--panel); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  #cmdk-empty { padding: 14px 16px; font: 400 12px/1 var(--mono); color: var(--muted); }
 
   /* ── Storage / lsblk ── */
   .storage-body { display: flex; flex-direction: column; gap: 5px; height: 100%; min-height: 0; }
@@ -579,7 +611,6 @@
     <div id="terminal-header">
       <div class="dot-r" id="term-btn-restart" title="Terminal neu starten"></div>
       <div class="dot-y" id="term-btn-clear"   title="Terminal leeren"></div>
-      <div class="dot-g" id="term-btn-close"   title="Dashboard schließen"></div>
       <span>fish — /usr/bin/fish (nativ)</span>
     </div>
     <div id="terminal-wrapper"></div>
@@ -642,6 +673,14 @@
 </div>
 
 <!-- WELCOME / BOOT -->
+<div id="cmdk" hidden>
+  <div id="cmdk-box">
+    <input id="cmdk-input" type="text" spellcheck="false" autocomplete="off"
+           placeholder="App suchen …  ↑↓ wählen · Enter startet · Esc schließt">
+    <ul id="cmdk-list"></ul>
+  </div>
+</div>
+
 <div id="boot">
   <div class="boot-inner">
     <div class="boot-logo" id="boot-logo">SASSY<span class="boot-mid">·</span>DASH</div>
@@ -1626,7 +1665,6 @@
     spawnDashboardTerminal = () => { if (api && api.spawnTerminal) api.spawnTerminal(getTerminalGeometry()); };
     $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
     $('term-btn-clear').addEventListener('click', () => api.termClear(), true);
-    $('term-btn-close').addEventListener('click', () => { flushNotes(); api.closeDashboard(); }, true);
   })();
 
   // ── App-Shortcuts ────────────────────────────────────────
@@ -1662,6 +1700,126 @@
       b.addEventListener('click', () => api.launchApp(key));
       box.append(b);
     }
+  })();
+
+  // ── Ctrl+K — App-Suche über alle .desktop-Einträge ───────
+  // Öffnet ein zentriertes Suchfeld; die App-Liste kommt (einmalig, gecacht) aus
+  // dem Main-Prozess, gestartet wird per id. Der xterm wird währenddessen
+  // ausgeblendet, damit er die Palette nicht überdeckt.
+  (function initCmdK() {
+    if (!api || !api.listApps) return;
+    const overlay = $('cmdk'), input = $('cmdk-input'), list = $('cmdk-list');
+    if (!overlay || !input || !list) return;
+
+    let apps = null, filtered = [], sel = 0, isOpen = false, loading = false;
+
+    // 0 = Präfix, 1+ = Teilstring (später = schlechter), 5 = Subsequenz, ∞ = kein Treffer
+    const score = (q, name) => {
+      name = name.toLowerCase();
+      if (name.startsWith(q)) return 0;
+      const i = name.indexOf(q);
+      if (i > 0) return 1 + i / 200;
+      let k = 0;
+      for (let c = 0; c < name.length && k < q.length; c++) if (name[c] === q[k]) k++;
+      return k === q.length ? 5 : Infinity;
+    };
+
+    function paintSel() {
+      const kids = list.children;
+      for (let i = 0; i < kids.length; i++) kids[i].classList.toggle('sel', i === sel);
+      const cur = kids[sel];
+      if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+    }
+
+    function render() {
+      list.innerHTML = '';
+      if (!filtered.length) {
+        const li = document.createElement('li');
+        li.id = 'cmdk-empty';
+        li.textContent = loading ? 'Lade Apps …' : 'Nichts gefunden';
+        list.append(li);
+        return;
+      }
+      filtered.forEach((a, i) => {
+        const li = document.createElement('li');
+        if (i === sel) li.className = 'sel';
+        const n = document.createElement('span');
+        n.textContent = a.name;
+        li.append(n);
+        if (a.terminal) {
+          const t = document.createElement('span');
+          t.className = 'cmdk-term';
+          t.textContent = 'Terminal';
+          li.append(t);
+        }
+        li.addEventListener('mousemove', () => { if (sel !== i) { sel = i; paintSel(); } });
+        li.addEventListener('click', () => { sel = i; launch(); });
+        list.append(li);
+      });
+    }
+
+    function filter() {
+      const q = input.value.trim().toLowerCase();
+      const src = apps || [];
+      if (!q) {
+        filtered = src.slice(0, 60);
+      } else {
+        filtered = src
+          .map((a) => [score(q, a.name), a])
+          .filter((x) => x[0] !== Infinity)
+          .sort((x, y) => x[0] - y[0] || x[1].name.length - y[1].name.length)
+          .slice(0, 60)
+          .map((x) => x[1]);
+      }
+      sel = 0;
+      render();
+    }
+
+    async function open() {
+      if (isOpen) return;
+      isOpen = true;
+      input.value = '';
+      overlay.hidden = false;
+      if (api.setTerminalVisible) api.setTerminalVisible(false);
+      if (!apps && !loading) {
+        loading = true;
+        filter();                       // zeigt "Lade Apps …"
+        try { apps = await api.listApps(); } catch (e) { apps = []; }
+        loading = false;
+        if (!isOpen) return;
+      }
+      filter();
+      input.focus();
+    }
+
+    function close() {
+      if (!isOpen) return;
+      isOpen = false;
+      overlay.hidden = true;
+      if (api.setTerminalVisible) api.setTerminalVisible(true);
+    }
+
+    function launch() {
+      const a = filtered[sel];
+      if (!a) return;
+      api.launchDesktop(a.id);
+      close();
+    }
+
+    input.addEventListener('input', filter);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown')      { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); paintSel(); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); sel = Math.max(sel - 1, 0); paintSel(); }
+      else if (e.key === 'Enter')     { e.preventDefault(); launch(); }
+      else if (e.key === 'Escape')    { e.preventDefault(); close(); }
+    });
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        isOpen ? close() : open();
+      }
+    });
   })();
 
   // ── Single resize handler (canvases + terminal geometry) ──

@@ -35,8 +35,12 @@ contextBridge.exposeInMainWorld('api', {
   raiseTerminal:   ()     => ipcRenderer.send('terminal-raise'),
   termRestart:     ()     => ipcRenderer.send('terminal-restart'),
   termClear:       ()     => ipcRenderer.send('terminal-clear'),
-  closeDashboard:  ()     => ipcRenderer.send('dashboard-close'),
+  setTerminalVisible: (v) => ipcRenderer.send('terminal-visible', !!v),
 
   // App-Shortcuts (Key wird im Main-Prozess gegen eine Whitelist geprüft)
   launchApp:       (key)  => ipcRenderer.send('launch-app', key),
+
+  // App-Suche (Ctrl+K): Liste holen, Start nur über id aus dieser Liste
+  listApps:        ()     => ipcRenderer.invoke('list-apps'),
+  launchDesktop:   (id)   => ipcRenderer.send('launch-desktop', id),
 });

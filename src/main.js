@@ -16,10 +16,18 @@ let batteryMonitorStopped = false;
 
 app.setName('SysDashboard');
 
-// "Immer im Hintergrund" (keep below) wird über KWin-Fensterregeln erzwungen,
-// nicht im Code — siehe ~/.config/kwinrulesrc (Titel "Dashboard" / Klasse
-// "SysDashboardXterm", below=Force). Ozone-Plattform NICHT auf x11 zwingen:
-// bricht das Rendering unter diesem KWin (GPU-Segfault, kein Fenster).
+// Stacking über KWin-Fensterregeln (~/.config/kwinrulesrc):
+//   Rule "Dashboard"        → below=Force  (Backdrop, bleibt hinter allem)
+//   Rule "SysDashboardXterm" → nur noborder + skiptaskbar/pager/switcher (Force),
+//                              KEIN below mehr.
+// Grund: Electron 41 ignoriert ELECTRON_OZONE_PLATFORM_HINT=x11 und läuft nativ
+// auf Wayland. Ein X11-`xdotool windowraise` kann den XWayland-xterm dann nicht
+// mehr über das Wayland-Dashboard heben — solange beide below=Force sind, deckt
+// jeder Klick ins Dashboard den xterm zu. Ohne die below-Regel am xterm steht er
+// im normalen Stacking: das Dashboard (below=Force) kann ihn nicht mehr
+// überdecken, echte Fenster aber schon.
+// Ozone-Plattform NICHT auf x11 zwingen: bricht das Rendering unter diesem KWin
+// (GPU-Segfault, kein Fenster).
 
 // ── Logging ────────────────────────────────────────────────────
 const DASH_DIR   = path.join(os.homedir(), '.local', 'share', 'sys-dashboard');
@@ -778,12 +786,18 @@ ipcMain.on('terminal-clear', () => {
     (e) => { if (e) log('terminal-clear: ' + e.message); });
 });
 
-ipcMain.on('dashboard-close', () => {
-  log('Dashboard: Schließen über Terminal-Button');
-  stopStorageMonitor();
-  stopBatteryMonitor();
-  killExternalTerminal();
-  app.quit();
+// xterm für die Dauer eines Overlays (Ctrl+K-Palette) aus-/einblenden, damit er
+// die zentrierte Suche nicht überdeckt.
+ipcMain.on('terminal-visible', (_event, visible) => {
+  if (!termWid) return;
+  if (visible) {
+    exec(`xdotool windowmap ${termWid}`, () => {
+      if (termGeom) moveTerminalWindow(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
+      raiseTerminal();
+    });
+  } else {
+    exec(`xdotool windowunmap ${termWid}`, () => {});
+  }
 });
 
 // ── App-Shortcuts (Whitelist) ──────────────────────────────────
@@ -832,4 +846,104 @@ ipcMain.on('launch-app', (_event, key) => {
     return;
   }
   tryLaunch(LAUNCH_CANDIDATES[key], 0);
+});
+
+// ── App-Suche (Ctrl+K) — alle installierten .desktop-Einträge ──
+// Der Renderer bekommt nur {id, name}; gestartet wird ausschließlich über eine
+// id aus genau dieser (im Main gecachten) Liste — kein Kommando vom Renderer.
+const DESKTOP_DIRS = [
+  '/usr/share/applications',
+  '/usr/local/share/applications',
+  path.join(os.homedir(), '.local/share/applications'),
+  '/var/lib/flatpak/exports/share/applications',
+  path.join(os.homedir(), '.local/share/flatpak/exports/share/applications'),
+  '/var/lib/snapd/desktop/applications',
+];
+let appCache = null;
+
+function stripFieldCodes(exec) {
+  return exec.replace(/%[fFuUdDnNickvm]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function parseDesktopEntry(text) {
+  const e = {};
+  let inEntry = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('#') || !line) continue;
+    if (line.startsWith('[')) { inEntry = (line === '[Desktop Entry]'); continue; }
+    if (!inEntry) continue;
+    const eq = line.indexOf('=');
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!(key in e)) e[key] = line.slice(eq + 1);
+  }
+  return e;
+}
+
+function scanApps() {
+  const byId = new Map();
+  for (const dir of DESKTOP_DIRS) {
+    let files;
+    try { files = fs.readdirSync(dir); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith('.desktop')) continue;
+      const id = f.slice(0, -8);
+      if (byId.has(id)) continue;
+      let text;
+      try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { continue; }
+      const e = parseDesktopEntry(text);
+      if (!e.Name || !e.Exec) continue;
+      if (e.Type && e.Type !== 'Application') continue;
+      if (/^true$/i.test(e.NoDisplay || '') || /^true$/i.test(e.Hidden || '')) continue;
+      byId.set(id, {
+        id,
+        name: e.Name,
+        exec: stripFieldCodes(e.Exec),
+        terminal: /^true$/i.test(e.Terminal || ''),
+        file: path.join(dir, f),
+      });
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+
+ipcMain.handle('list-apps', () => {
+  if (!appCache) { appCache = scanApps(); log(`list-apps: ${appCache.length} Einträge gescannt`); }
+  return appCache.map(({ id, name, terminal }) => ({ id, name, terminal }));
+});
+
+ipcMain.on('launch-desktop', (_event, id) => {
+  if (typeof id !== 'string') return;
+  if (!appCache) appCache = scanApps();
+  const entry = appCache.find((a) => a.id === id);
+  if (!entry) { log(`launch-desktop: unbekannte App "${id}"`); return; }
+
+  const spawnDetached = (cmd, args) => {
+    const c = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    c.on('error', (err) => log(`launch-desktop: ${entry.name}: ${err && err.message}`));
+    c.on('spawn', () => log(`launch-desktop: ${entry.name}`));
+    c.unref();
+    return c;
+  };
+  const viaExec = () => {
+    const [cmd, ...args] = entry.exec.split(' ').filter(Boolean);
+    if (!cmd) { log(`launch-desktop: leerer Exec für "${id}"`); return; }
+    if (entry.terminal) spawnDetached('konsole', ['-e', cmd, ...args]);
+    else spawnDetached(cmd, args);
+  };
+
+  // gio übernimmt Field-Codes + DBus-Aktivierung sauber; ENOENT → Exec direkt.
+  let child;
+  try { child = spawn('gio', ['launch', entry.file], { detached: true, stdio: 'ignore' }); }
+  catch { return viaExec(); }
+  let fellBack = false;
+  child.on('error', (err) => {
+    if (fellBack) return;
+    fellBack = true;
+    if (err && err.code === 'ENOENT') viaExec();
+    else log(`launch-desktop: ${entry.name}: ${err && err.message}`);
+  });
+  child.on('spawn', () => log(`launch-desktop: ${entry.name}`));
+  child.unref();
 });
