@@ -2,3 +2,4 @@ node_modules/
 dashboard.log
 xterm.pid
 .claude/
+profile.json
