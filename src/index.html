@@ -255,6 +255,7 @@
   .section-title { font: 600 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-2); margin-bottom: 7px; }
   .svc-line { display: flex; gap: 16px; font: 400 12px/1.4 var(--mono); }
   #svc-running { color: var(--green); }
+  #svc-running.is-muted { color: var(--muted); }
   .svc-val.is-green { color: var(--green); }
   .svc-val.is-red   { color: var(--red); }
   #svc-fail-list { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
@@ -334,6 +335,7 @@
   .dot-r:hover, .dot-y:hover { opacity: .6; }
   #terminal-header span { font: 400 10px/1 var(--mono); color: var(--muted); margin-left: 6px; letter-spacing: 1px; }
   #terminal-wrapper { flex: 1; min-height: 0; }
+  .term-hint { padding: 10px 12px; font: 400 11px/1.4 var(--mono); color: var(--muted); }
 
   /* ── Ctrl+K — App-Suche ── */
   #cmdk {
@@ -611,7 +613,7 @@
     <div id="terminal-header">
       <div class="dot-r" id="term-btn-restart" title="Terminal neu starten"></div>
       <div class="dot-y" id="term-btn-clear"   title="Terminal leeren"></div>
-      <span>fish — /usr/bin/fish (nativ)</span>
+      <span id="term-title">fish — /usr/bin/fish (nativ)</span>
     </div>
     <div id="terminal-wrapper"></div>
   </div>
@@ -695,6 +697,8 @@
 'use strict';
 (function () {
   const api = window.api;
+  // Hardware-Profil aus dem Preload (Kerne, Akku, systemd, Tools, Tier …) — darf fehlen
+  const PROFILE = (api && api.profile) || null;
   const GRAPH_MAX = 80;
 
   // ── Interval registry ────────────────────────────────────────
@@ -854,7 +858,9 @@
   // Repaint rate for the continuous scroll. No GPU compositing here, so each
   // extra redraw costs real CPU — 14fps reads as smooth for ~1px/frame of travel.
   // Set to 0 to disable the glide entirely (instant per-sample redraw).
-  const GLIDE_FPS = 14;
+  // Kommt aus dem Hardware-Profil (PROFILE.glideFps, je nach Tier low/mid/high),
+  // ohne Profil bleibt es bei 14.
+  const GLIDE_FPS = PROFILE && Number.isFinite(PROFILE.glideFps) ? PROFILE.glideFps : 14;
   let sysSampleTs = performance.now() - SYS_MS;
   let netSampleTs = performance.now() - NET_MS;
   let storeSampleTs = performance.now() - STORE_MS;
@@ -990,16 +996,36 @@
   })();
 
   const coreEls = [];
+  let coreKey = '0/0';                            // leer → „Lade…“ bleibt stehen
+  // max. 8 Balken: bei mehr Kernen zusammenhängende, möglichst gleich große
+  // Gruppen bilden (Wert = Mittel der Gruppe, Label „C0–3“). ≤8 Kerne: 1:1.
+  const CORE_BARS_MAX = 8;
+  function coreGroups(total) {
+    const n = Math.min(total, CORE_BARS_MAX), out = [];
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(i * total / n), b = Math.floor((i + 1) * total / n);
+      out.push([a, b]);                             // [a, b) — b > a, da total >= n
+    }
+    return out;
+  }
   function renderCores(cores) {
     const box = $('core-bars');
-    const n = Math.min(cores.length, 8);
-    if (coreEls.length !== n) {
+    const total = cores.length;
+    const groups = coreGroups(total);
+    const n = groups.length;
+    const grouped = total > n;
+    // DOM nur neu bauen, wenn sich Balkenanzahl/Label-Satz ändert
+    const key = total + '/' + n;
+    if (coreEls.length !== n || coreKey !== key) {
+      coreKey = key;
       box.textContent = '';
       coreEls.length = 0;
       for (let i = 0; i < n; i++) {
         const item = document.createElement('div'); item.className = 'bar-item';
         const lab = document.createElement('div'); lab.className = 'bar-label';
-        const l = document.createElement('span'); l.textContent = 'Core ' + i;
+        const g = groups[i];
+        const l = document.createElement('span');
+        l.textContent = grouped ? (g[1] - g[0] > 1 ? 'C' + g[0] + '–' + (g[1] - 1) : 'C' + g[0]) : 'Core ' + i;
         const v = document.createElement('span');
         lab.append(l, v);
         const track = document.createElement('div'); track.className = 'bar-track';
@@ -1015,7 +1041,10 @@
     // Deadband gegen das Sample-Rauschen: kleine Zappler (<3%) bewegen den Balken
     // gar nicht, echte Änderungen gedämpft, große Sprünge schnell.
     for (let i = 0; i < n; i++) {
-      const raw = Math.max(0, Math.min(100, cores[i] || 0)) / 100;
+      const g = groups[i];
+      let sum = 0;
+      for (let j = g[0]; j < g[1]; j++) sum += +cores[j] || 0;
+      const raw = Math.max(0, Math.min(100, sum / (g[1] - g[0]))) / 100;
       const el = coreEls[i];
       const diff = raw - el.target, mag = Math.abs(diff);
       if (el.drawn < 0)         el.target = raw;              // erster Sample: direkt
@@ -1107,7 +1136,8 @@
     // DISK FULL — only if lsblk exposes a usage %; the current backend
     // (lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,...) does not, so this stays inert.
     diskFullAlerts().forEach((x) => a.push(x));
-    if (sv && sv.failedCount > 0) a.push(['orange', sv.failedCount + ' FAILED UNITS', '']);
+    // ohne systemd bleibt lastServices null → kein Alert (n/a ist kein Fehler)
+    if (HAS_SYSTEMD && sv && sv.failedCount > 0) a.push(['orange', sv.failedCount + ' FAILED UNITS', '']);
     if (!a.length) a.push(['green', 'keine Alerts · nominal', '']);
     renderAlerts(a);
     // Status-Karte einfärben nach höchster Schwere (statisch, keine Animation)
@@ -1179,9 +1209,17 @@
   }
 
   // ── Services tick ─────────────────────────────────────────
+  // Kein systemd (Profil sagt false): getServices gar nicht erst pollen, statt
+  // irreführendem „running — / failed 0“ ein gedämpftes „systemd n/a“.
+  const HAS_SYSTEMD = !(PROFILE && PROFILE.systemd === false);
+  if (!HAS_SYSTEMD) {
+    setText(svcRunning, 'systemd n/a');
+    svcRunning.className = 'is-muted';
+    svcFailed.hidden = true;
+  }
   let servicesBusy = false;
   async function tickServices() {
-    if (!api || servicesBusy) return;
+    if (!api || !HAS_SYSTEMD || servicesBusy) return;
     servicesBusy = true;
     try {
       let d;
@@ -1657,6 +1695,17 @@
   (function initTerminal() {
     if (!api) return;
     const wrapper = $('terminal-wrapper');
+    // Header aus dem Profil: Shell-Basename + Pfad (ohne Profil bleibt der HTML-Default)
+    if (PROFILE && typeof PROFILE.shell === 'string' && PROFILE.shell) {
+      const sh = PROFILE.shell, base = sh.split('/').pop() || sh;
+      setText($('term-title'), base + ' — ' + sh + ' (nativ)');
+    }
+    if (PROFILE && PROFILE.tools && PROFILE.tools.xterm === false) {
+      const hint = document.createElement('div');
+      hint.className = 'term-hint';
+      hint.textContent = 'xterm fehlt — installiere xterm (setup.sh)';
+      wrapper.append(hint);
+    }
     const getTerminalGeometry = () => {
       const r = wrapper.getBoundingClientRect();
       return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
@@ -1907,11 +1956,13 @@
     if (!api) return;
     every(tickSystem, SYS_MS);
     every(tickNet, NET_MS);
-    every(tickServices, 8000);
+    if (HAS_SYSTEMD) every(tickServices, 8000);
     every(tickDiskIo, 4000);
     every(tickTopProcs, 4000);
     every(tickLsblk, 30000);
-    every(tickBattery, 10000);            // udev-Event (battery-changed) triggert zusätzlich sofort
+    // kein Akku laut Profil → kein 10s-Poll (Pill bleibt hidden); das udev-Event
+    // (battery-changed) bleibt abonniert und triggert tickBattery bei Bedarf sofort
+    if (!(PROFILE && PROFILE.battery === false)) every(tickBattery, 10000);
     every(tickWeather, 900000);
     every(tickRss, 1200000);
     timers.push(setInterval(pulseLogo, 47000));
@@ -1967,7 +2018,9 @@
         ['processor', cores ? cores + ' cores' : 'online'],
         ['memory',    gb ? gb + ' GB' : 'online'],
         ['uptime',    (st && st.uptime) ? fmtUptime(st.uptime) : '—'],
-        ['interface', 'ready'],
+        ['selfcheck', PROFILE
+          ? (PROFILE.tier || 'mid') + ' · ' + (PROFILE.battery ? 'battery' : 'ac')
+          : 'ready'],
       ];
       for (const [k, v] of lines) { addLine(k, v); await wait(70); }
 
