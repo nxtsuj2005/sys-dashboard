@@ -22,3 +22,31 @@ Start: `cd ~/.local/share/sys-dashboard && npm start` oder neu einloggen.
 Update: `git pull && npm install`.
 
 Ohne KDE läuft es auch, aber ohne "immer im Hintergrund"-Verhalten (KWin-Regeln).
+
+## Selfcheck / Anpassung an die Hardware
+
+Beim Start und während `setup.sh` führt das Dashboard eine Hardware-Erkennung durch (`src/selfcheck.js`):
+
+**Erkannt:**
+- CPU-Kerne und RAM
+- Batterie (Laptop)
+- Temperatursensor
+- systemd
+- Netzwerk, Datenträger
+- Session/KDE-Umgebung
+- Erforderliche Tools
+
+**Anpassungen:**
+- Kernbalken werden bei > 8 Kernen gruppiert
+- Batterie-Widget nur auf Laptops
+- Performance-Stufe (low/mid/high) steuert Graph-FPS
+- Shell-Fallback: fish → $SHELL → bash
+- Service-Widget funktioniert auch ohne systemd
+
+Manuell testen:
+```bash
+node src/selfcheck.js       # Deutsche Ausgabe mit ✓/✗
+node src/selfcheck.js --json  # Nur JSON
+```
+
+Das Profil wird in `profile.json` gespeichert.
