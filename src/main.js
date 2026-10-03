@@ -120,6 +120,23 @@ function getDashboardBounds() {
   return bounds;
 }
 
+// ── Hardware-Profil ────────────────────────────────────────────
+let PROFILE;
+try {
+  PROFILE = require('./selfcheck').probe();
+} catch (e) {
+  log('selfcheck fehlgeschlagen, Fallback-Profil: ' + e.message);
+  PROFILE = {
+    cores: os.cpus().length, battery: detectBattery(), systemd: true,
+    tier: 'high', glideFps: 14, shell: '/usr/bin/fish', tools: {}, warnings: [],
+  };
+}
+PROFILE.tools = PROFILE.tools || {};
+PROFILE.warnings = Array.isArray(PROFILE.warnings) ? PROFILE.warnings : [];
+log(`Profil: ${PROFILE.cores} Kerne, ${PROFILE.ramMB ?? '?'} MB RAM, Akku=${PROFILE.battery ? 'ja' : 'nein'}, ` +
+    `Tier=${PROFILE.tier}, Shell=${PROFILE.shell}, Session=${PROFILE.session ?? '?'}`);
+for (const w of PROFILE.warnings) log('Profil-Warnung: ' + w);
+
 // ── Window ─────────────────────────────────────────────────────
 function createWindow() {
   const dashboardBounds = getDashboardBounds();
@@ -132,7 +149,10 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      additionalArguments: [`--sys-dashboard-has-battery=${detectBattery() ? '1' : '0'}`],
+      additionalArguments: [
+        `--sys-dashboard-has-battery=${PROFILE.battery ? '1' : '0'}`,
+        `--sys-dashboard-profile=${Buffer.from(JSON.stringify(PROFILE)).toString('base64')}`,
+      ],
       preload: path.join(__dirname, 'preload.js'),
     },
     backgroundColor: '#0d0f14',
@@ -686,10 +706,15 @@ function moveTerminalWindow(wid, x, y, w, h) {
     (e) => { if (e) log('moveTerminalWindow: ' + e.message); });
 }
 
+let xtermMissingLogged = false;
 function spawnTerminal() {
   killExternalTerminal();
   const gen = ++termGen;
 
+  if (PROFILE.tools.xterm === false) {
+    if (!xtermMissingLogged) { xtermMissingLogged = true; log('xterm nicht installiert — Terminal wird nicht gestartet'); }
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!termGeom) { log('xterm: termGeom noch nicht gesetzt'); return; }
 
@@ -709,7 +734,7 @@ function spawnTerminal() {
     '+sb',                        // kein Scrollbar
     '-bc',                        // Block-Cursor
     '-bw',      '0',
-    '-e',       '/usr/bin/fish',
+    '-e',       PROFILE.shell,
   ], { detached: true, env });   // detached: true → Gruppenleiter, als Gruppe killbar (kein unref!)
 
   if (termProc.pid) fs.writeFileSync(XTERM_PID, String(termProc.pid), 'utf8');
@@ -727,7 +752,7 @@ function spawnTerminal() {
     else                termRestartAttempts = 0; // lief eine Weile → normaler Neustart
 
     if (termRestartAttempts >= 5) {
-      log('xterm startet wiederholt sofort ab (5×) — Auto-Neustart gestoppt. Prüfe: xterm installiert? /usr/bin/fish vorhanden?');
+      log(`xterm startet wiederholt sofort ab (5×) — Auto-Neustart gestoppt. Prüfe: xterm installiert? ${PROFILE.shell} vorhanden?`);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal-failed');
       return;
     }
@@ -807,7 +832,7 @@ ipcMain.on('terminal-visible', (_event, visible) => {
 const LAUNCH_CANDIDATES = {
   chromium: [['chromium'], ['chromium-browser'], ['chromium-freeworld'],
              ['flatpak', 'run', 'org.chromium.Chromium'], ['google-chrome-stable'], ['google-chrome']],
-  terminal: [['konsole'], ['alacritty'], ['kitty'], ['wezterm'], ['gnome-terminal'], ['xterm', '-e', 'fish']],
+  terminal: [['konsole'], ['alacritty'], ['kitty'], ['wezterm'], ['gnome-terminal'], ['xterm', '-e', PROFILE.shell]],
   settings: [['systemsettings'], ['systemsettings5'], ['kcmshell6'], ['kcmshell5']],
   dolphin:  [['dolphin'], ['pcmanfm-qt'], ['nautilus'], ['xdg-open', os.homedir()]],
   discord:  [['discord'], ['Discord'], ['vesktop'], ['flatpak', 'run', 'com.discordapp.Discord']],
