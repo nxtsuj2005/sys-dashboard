@@ -1,5 +1,6 @@
 #!/bin/sh
-# trigger the idle glitch in the running dashboard
+# trigger the idle glitch in the running dashboard; `glitch crash` forces the crash + reboot
 pid=$(pgrep -f 'sys-dashboard.*node_modules/electron/dist/electron \.$' | head -1)
 [ -n "$pid" ] || { echo "dashboard not running" >&2; exit 1; }
+[ "$1" = crash ] && echo crash > "${TMPDIR:-/tmp}/sys-dashboard-glitch-mode"
 kill -USR2 "$pid"

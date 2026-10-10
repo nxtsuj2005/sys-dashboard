@@ -1003,9 +1003,12 @@ ipcMain.on('launch-desktop', (_event, id) => {
   child.unref();
 });
 
+const GLITCH_MODE = path.join(os.tmpdir(), 'sys-dashboard-glitch-mode');
 // `kill -USR2 <pid>` (or bin/glitch) triggers the idle glitch right now, for testing
 process.on('SIGUSR2', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.executeJavaScript('window.__glitch && window.__glitch()').catch((e) => log(`glitch: ${e.message}`));
+    let fn = '__glitch';
+    try { fn = fs.readFileSync(GLITCH_MODE, 'utf8').trim() === 'crash' ? '__crash' : '__glitch'; fs.unlinkSync(GLITCH_MODE); } catch {}
+    mainWindow.webContents.executeJavaScript(`window.${fn} && window.${fn}()`).catch((e) => log(`glitch: ${e.message}`));
   }
 });
