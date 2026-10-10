@@ -512,7 +512,7 @@
     clip-path: inset(0 var(--bx2) 0 var(--bx1));
     animation: burst-x .16s steps(3, end) forwards;
   }
-  @keyframes burst-x { to { clip-path: inset(0 0 0 0); } }
+  @keyframes burst-x { to { clip-path: inset(0 0 0 var(--bx1)); } }
 
   /* dashboard start-up: components load in, get sorted wrong, then snap back */
   .dash-pre #app :is(.card, .kpi-card, #topbar) { visibility: hidden; }
