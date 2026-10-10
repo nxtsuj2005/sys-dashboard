@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
   raiseTerminal:   ()     => ipcRenderer.send('terminal-raise'),
   termRestart:     ()     => ipcRenderer.send('terminal-restart'),
   termClear:       ()     => ipcRenderer.send('terminal-clear'),
+  termSend:        (txt)  => ipcRenderer.send('terminal-send', String(txt)),
   setTerminalVisible: (v) => ipcRenderer.send('terminal-visible', !!v),
 
   // App-Shortcuts (Key wird im Main-Prozess gegen eine Whitelist geprüft)

@@ -536,6 +536,16 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
 
 .kpi-card{padding:8px 10px!important}#rss-card{display:none!important}#main{grid-template-columns:1.25fr 1.1fr .65fr}#main-right{display:block}#weather-card{height:100%}.weather-main{margin-top:8px;margin-bottom:14px!important}.weather-details{gap:8px!important}.weather-item{padding:7px}.wlabel{font-size:9px}.wval{font-size:11px}
 @media(max-height:949px){#compactbar{padding:0 10px}.compact-brand{font-size:12px}.brand-mark{font-size:14px}.compact-metric{height:22px}.usage-gauge{width:33px;height:24px}.compact-time{gap:0}.compact-time strong{font-size:13px;min-width:70px}.compact-time span{font-size:7px}.compact-power .metric-unit{font-size:8px;line-height:1.2}.compact-net strong{font-size:9px}.compact-net>div{gap:1px}.weather-main{margin-top:2px;margin-bottom:8px!important}.weather-details{gap:6px!important}}
+
+#term-btn-restart,#term-btn-clear{display:inline-block;width:auto;height:auto;border-radius:0}
+#terminal-header{display:flex;align-items:center}.terminal-hint{margin-left:auto}
+.term-act{background:transparent;border:0;color:#b1c5de;font:10px var(--mono);padding:4px 8px;cursor:pointer}.term-act:hover{color:#e1eeff}
+#terminal-wrapper{padding:0}
+#term-bar{display:flex;align-items:center;gap:12px;margin:0 12px 10px;background:#142133;border:1px solid #3a5679;border-radius:4px;padding:5px 9px;min-height:34px;flex-shrink:0}
+#term-bar:focus-within{border-color:#8abafe}#term-bar b{color:#8abafe}
+#term-input{flex:1;min-width:0;background:transparent;border:0;color:#e1eeff;font:11px var(--mono);outline:none}#term-input::placeholder{color:#6f87a1}
+#term-bar button{font:10px var(--mono);background:#294667;color:#d8eaff;border:0;border-radius:3px;padding:4px 10px;cursor:pointer}
+.weather-icon svg{width:30px;height:30px;display:block;color:#91bffd}.weather-icon .wi-sun{color:#dfc98f}
 </style>
 </head>
 <body>
@@ -639,11 +649,13 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
   <!-- TERMINAL BAND — nur Rahmen, natives xterm darunter -->
   <div id="terminal-card">
     <div id="terminal-header">
-      <div class="dot-r" id="term-btn-restart" title="Terminal neu starten"></div>
-      <div class="dot-y" id="term-btn-clear"   title="Terminal leeren"></div>
       <span id="term-title">fish — /usr/bin/fish (nativ)</span>
+      <span class="terminal-hint">Ctrl K · Apps</span>
+      <button class="term-act" id="term-btn-clear" type="button" title="Terminal leeren">Leeren</button>
+      <button class="term-act" id="term-btn-restart" type="button" title="Terminal neu starten">Neu</button>
     </div>
     <div id="terminal-wrapper"></div>
+    <form id="term-bar" autocomplete="off"><b>❯</b><input id="term-input" type="text" spellcheck="false" placeholder="Befehl an das Terminal senden …" aria-label="Befehl an das Terminal"><button type="submit">Enter ↵</button></form>
   </div>
 
   <!-- BOTTOM BAND -->
@@ -1513,18 +1525,28 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
   const wItems = {};
 
   // WWO-Wettercode → Emoji (wttr.in j1)
-  function weatherEmoji(code) {
+  const WEATHER_ICONS = {
+    sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><g class="wi-sun" style="color:#dfc98f"><circle cx="12" cy="12" r="4" fill="currentColor" fill-opacity=".22"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M18.7 5.3l-1.8 1.8M7.1 16.9l-1.8 1.8"/></g></svg>',
+    partly: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><g class="wi-sun" style="color:#dfc98f"><circle cx="8.5" cy="8.5" r="3" fill="currentColor" fill-opacity=".22"/><path d="M8.5 2.5v1.8M2.5 8.5h1.8M4.3 4.3l1.2 1.2M12.7 4.3l-1.2 1.2"/></g><path d="M9 20.5h9a3 3 0 0 0 .3-6A4.6 4.6 0 0 0 9.8 15.3 2.6 2.6 0 0 0 9 20.5z" fill="currentColor" fill-opacity=".22"/></svg>',
+    cloud: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><path d="M6 18h11a3.5 3.5 0 0 0 .4-7A5.5 5.5 0 0 0 6.8 11.5 3.2 3.2 0 0 0 6 18z" transform="translate(0 -1)" fill="currentColor" fill-opacity=".22"/></svg>',
+    fog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><path d="M4 8h16M6 12h14M4 16h12M8 20h10"/></svg>',
+    rain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><path d="M6 18h11a3.5 3.5 0 0 0 .4-7A5.5 5.5 0 0 0 6.8 11.5 3.2 3.2 0 0 0 6 18z" transform="translate(0 -4)" fill="currentColor" fill-opacity=".22"/><path d="M8 17.5l-1 3M12 17.5l-1 3M16 17.5l-1 3"/></svg>',
+    shower: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><g transform="translate(0 -1)"><g class="wi-sun" style="color:#dfc98f"><circle cx="8.5" cy="7" r="2.6" fill="currentColor" fill-opacity=".22"/><path d="M8.5 1.8v1.5M3.3 7h1.5M4.8 3.3l1 1M12.2 3.3l-1 1"/></g></g><path d="M9 15.5h8a3 3 0 0 0 .3-6A4.6 4.6 0 0 0 9.8 10.3 2.6 2.6 0 0 0 9 15.5z" fill="currentColor" fill-opacity=".22"/><path d="M10 18l-1 3M14 18l-1 3"/></svg>',
+    snow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><path d="M6 18h11a3.5 3.5 0 0 0 .4-7A5.5 5.5 0 0 0 6.8 11.5 3.2 3.2 0 0 0 6 18z" transform="translate(0 -4)" fill="currentColor" fill-opacity=".22"/><path d="M8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01" stroke-width="2.2"/></svg>',
+    thunder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="round"><path d="M6 18h11a3.5 3.5 0 0 0 .4-7A5.5 5.5 0 0 0 6.8 11.5 3.2 3.2 0 0 0 6 18z" transform="translate(0 -4)" fill="currentColor" fill-opacity=".22"/><path d="M13 14.5 10 19h3.5l-1.5 3.5"/></svg>',
+  };
+  function weatherIcon(code) {
     const c = parseInt(code, 10);
     if (!Number.isFinite(c)) return '·';
-    if (c === 113) return '☀️';
-    if (c === 116) return '⛅';
-    if (c === 119 || c === 122) return '☁️';
-    if (c === 143 || c === 248 || c === 260) return '🌫️';
-    if (c === 200 || (c >= 386 && c <= 395)) return '⛈️';
-    if ((c >= 179 && c <= 230) || (c >= 317 && c <= 377) || c === 311 || c === 314) return '❄️';
-    if (c === 176 || c === 263 || c === 266 || c === 293 || c === 296 || c === 353) return '🌦️';
-    if (c === 299 || c === 302 || c === 305 || c === 308 || c === 356 || c === 359) return '🌧️';
-    return '🌥️';
+    if (c === 113) return WEATHER_ICONS.sun;
+    if (c === 116) return WEATHER_ICONS.partly;
+    if (c === 119 || c === 122) return WEATHER_ICONS.cloud;
+    if (c === 143 || c === 248 || c === 260) return WEATHER_ICONS.fog;
+    if (c === 200 || (c >= 386 && c <= 395)) return WEATHER_ICONS.thunder;
+    if ((c >= 179 && c <= 230) || (c >= 317 && c <= 377) || c === 311 || c === 314) return WEATHER_ICONS.snow;
+    if (c === 176 || c === 263 || c === 266 || c === 293 || c === 296 || c === 353) return WEATHER_ICONS.shower;
+    if (c === 299 || c === 302 || c === 305 || c === 308 || c === 356 || c === 359) return WEATHER_ICONS.rain;
+    return WEATHER_ICONS.cloud;
   }
 
   function buildWeather() {
@@ -1574,7 +1596,7 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       wMain.hidden = false;
       wItems.grid.hidden = false;
       setText(wTemp, (cur.temp_C != null ? cur.temp_C : '—') + '°');
-      setText(wIcon, weatherEmoji(cur.weatherCode));
+      { const svg = weatherIcon(cur.weatherCode); if (wIcon.dataset.c !== String(cur.weatherCode)) { wIcon.dataset.c = String(cur.weatherCode); wIcon.innerHTML = svg; } }
       setText(wDesc, (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) || '');
       setText(wFeels, 'Gefühlt ' + (cur.FeelsLikeC != null ? cur.FeelsLikeC : '—') + '°');
       setText(wItems.hum, (cur.humidity != null ? cur.humidity : '—') + '%');
@@ -1719,6 +1741,27 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
     spawnDashboardTerminal = () => { if (api && api.spawnTerminal) api.spawnTerminal(getTerminalGeometry()); };
     $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
     $('term-btn-clear').addEventListener('click', () => api.termClear(), true);
+  })();
+
+
+  // ── Eingabeleiste → xterm (xdotool im Main-Prozess) ──────
+  (function initTermBar() {
+    const form = $('term-bar'), input = $('term-input');
+    if (!form || !input) return;
+    if (!api || !api.termSend) { form.hidden = true; return; }
+    const hist = []; let hi = 0;
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = input.value;
+      if (v.trim()) { hist.push(v); if (hist.length > 100) hist.shift(); }
+      hi = hist.length;
+      api.termSend(v);
+      input.value = '';
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(0, hi - 1); input.value = hist[hi] || ''; }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hist.length, hi + 1); input.value = hist[hi] || ''; }
+    });
   })();
 
   // ── App-Shortcuts ────────────────────────────────────────

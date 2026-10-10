@@ -596,6 +596,17 @@ ipcMain.handle('get-logs', () => {
 // Stattdessen: xterm als eigenes X11-Fenster, positioniert über dem Terminal-Bereich
 // SKIP_TASKBAR versteckt es aus der Taskbar. "Immer unten" macht die KWin-Regel (kwinrulesrc).
 let termProc     = null;
+// ANSI-Palette (0–15) im Dashboard-Farbkonzept
+const XTERM_PALETTE = [
+  '#0a1018', '#e58f8a', '#95c9b5', '#d9c48a', '#7fb0e8', '#c1b5da', '#91bffd', '#adbfd2',
+  '#3a4a5f', '#f0a5a0', '#b3e0cd', '#e8d7a3', '#a5c9f5', '#d6cbec', '#b5d7ff', '#e1eeff',
+];
+// fish: kurzer Prompt "❯ " + dezenter Pfad, nur für dieses Dashboard-Terminal (-C läuft nach config.fish)
+function shellInitArgs(shell) {
+  if (path.basename(shell || '') !== 'fish') return [];
+  return ['-C', "function fish_prompt; set_color 8abafe; echo -n '❯ '; set_color normal; end; function fish_right_prompt; set_color 6f87a1; echo -n (prompt_pwd); set_color normal; end"];
+}
+
 let termWid      = null;   // X11-WID des xterm-Fensters
 let termGeom     = null;   // { x, y, w, h } — Bildschirmkoordinaten des terminal-wrappers
 let termGen      = 0;
@@ -726,15 +737,20 @@ function spawnTerminal() {
     '-class',    'SysDashboardXterm',
     '-name',     'sys-dashboard-xterm',
     '-geometry', `+${x}+${y}`,   // Startposition = Terminal-Bereich auf dem Bildschirm
-    '-bg',      '#0a0c10',
-    '-fg',      '#e8eaed',
-    '-cr',      '#4fc3f7',
-    '-selbg',   '#4fc3f7',
-    '-selfg',   '#0a0c10',
+    '-bg',      '#0a1018',
+    '-fg',      '#adbfd2',
+    '-cr',      '#8abafe',
+    '-selbg',   '#294667',
+    '-selfg',   '#e1eeff',
+    '-fa',      'DejaVu Sans Mono',
+    '-fs',      '10',
     '+sb',                        // kein Scrollbar
     '-bc',                        // Block-Cursor
     '-bw',      '0',
-    '-e',       PROFILE.shell,
+    // Farbprofil passend zum Dashboard (Blau/Mint, gedämpft) + Eingabeleiste darf per xdotool tippen
+    ...XTERM_PALETTE.flatMap((c, i) => ['-xrm', `SysDashboardXterm*color${i}: ${c}`]),
+    '-xrm',     'SysDashboardXterm*allowSendEvents: true',
+    '-e',       PROFILE.shell, ...shellInitArgs(PROFILE.shell),
   ], { detached: true, env });   // detached: true → Gruppenleiter, als Gruppe killbar (kein unref!)
 
   if (termProc.pid) fs.writeFileSync(XTERM_PID, String(termProc.pid), 'utf8');
@@ -809,6 +825,17 @@ ipcMain.on('terminal-clear', () => {
   // als Key und schlägt fehl. Ctrl+L an das xterm senden.
   exec(`xdotool key --window ${termWid} --clearmodifiers ctrl+l`,
     (e) => { if (e) log('terminal-clear: ' + e.message); });
+});
+
+// Eingabeleiste: Text per xdotool ins xterm tippen + Enter (execFile, keine Shell-Interpolation)
+ipcMain.on('terminal-send', (_event, text) => {
+  if (!termWid || typeof text !== 'string') return;
+  const line = text.replace(/[\r\n]+/g, ' ').slice(0, 2000);
+  const press = () => execFile('xdotool', ['key', '--window', String(termWid), '--clearmodifiers', 'Return'],
+    (e) => { if (e) log('terminal-send (Return): ' + e.message); });
+  if (!line) { press(); return; }
+  execFile('xdotool', ['type', '--window', String(termWid), '--clearmodifiers', '--delay', '2', '--', line],
+    (e) => { if (e) { log('terminal-send (type): ' + e.message); return; } press(); });
 });
 
 // xterm für die Dauer eines Overlays (Ctrl+K-Palette) aus-/einblenden, damit er
