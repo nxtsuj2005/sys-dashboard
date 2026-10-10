@@ -1737,7 +1737,18 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       const r = wrapper.getBoundingClientRect();
       return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
     };
-    syncTerminalGeometry = () => api.updateTerminalGeometry && api.updateTerminalGeometry(getTerminalGeometry());
+    let lastGeom = '';
+    syncTerminalGeometry = () => {
+      if (!api.updateTerminalGeometry) return;
+      const g = getTerminalGeometry();
+      lastGeom = JSON.stringify(g);
+      api.updateTerminalGeometry(g);
+    };
+    // Layout verschiebt sich auch ohne Fenster-Resize (Header, Events, Wetter laden nach) —
+    // Rect beobachten, sonst klebt der native xterm an veralteten Koordinaten.
+    const syncIfMoved = () => { if (JSON.stringify(getTerminalGeometry()) !== lastGeom) syncTerminalGeometry(); };
+    if (window.ResizeObserver) new ResizeObserver(syncIfMoved).observe(document.body);
+    setInterval(syncIfMoved, 500);
     spawnDashboardTerminal = () => { if (api && api.spawnTerminal) api.spawnTerminal(getTerminalGeometry()); };
     $('term-btn-restart').addEventListener('click', () => api.termRestart(), true);
     $('term-btn-clear').addEventListener('click', () => api.termClear(), true);

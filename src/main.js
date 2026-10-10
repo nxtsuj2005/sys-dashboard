@@ -140,6 +140,7 @@ for (const w of PROFILE.warnings) log('Profil-Warnung: ' + w);
 // ── Window ─────────────────────────────────────────────────────
 function createWindow() {
   const dashboardBounds = getDashboardBounds();
+  windowOrigin = { x: dashboardBounds.x, y: dashboardBounds.y };
   mainWindow = new BrowserWindow({
     ...dashboardBounds,
     frame: false, transparent: false,
@@ -608,6 +609,7 @@ function shellInitArgs(shell) {
 }
 
 let termWid      = null;   // X11-WID des xterm-Fensters
+let windowOrigin = { x: 0, y: 0 };  // Soll-Ursprung des Dashboard-Fensters (Bildschirmkoordinaten)
 let termGeom     = null;   // { x, y, w, h } — Bildschirmkoordinaten des terminal-wrappers
 let termGen      = 0;
 let termRestartAttempts = 0;   // aufeinanderfolgende Sofort-Abstürze
@@ -636,9 +638,9 @@ function raiseTerminalSoon() {
 }
 
 function toScreenGeom(geom) {
-  const bounds = mainWindow && !mainWindow.isDestroyed()
-    ? mainWindow.getBounds()
-    : { x: 0, y: 0 };
+  // Nicht mainWindow.getBounds(): unter Wayland meldet Electron dort einen veralteten
+  // Versatz (z. B. 16,10), der den xterm über Ränder und Eingabeleiste schiebt.
+  const bounds = windowOrigin;
 
   return {
     x: Math.round(bounds.x + geom.x),
