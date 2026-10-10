@@ -2395,21 +2395,21 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       kill(i); swapStep(2); await sleep(rnd(40, 110));
     }
     // survivors keep trying to hold their tiles
-    for (let t = 0; t < 8; t++) { swapStep(1); await sleep(rnd(120, 260)); }
-    for (const i of survivors) { kill(i); await sleep(rnd(60, 160)); }
+    for (let t = 0; t < 3; t++) { swapStep(1); await sleep(rnd(90, 170)); }
+    for (const i of survivors) { kill(i); await sleep(rnd(40, 90)); }
     const black = document.createElement('div');
     black.id = 'crash-black';
     document.body.append(black);
     // "boot screen": a few survivors respawn on black, still sliding between slots, then vanish
-    await sleep(rnd(500, 900));
+    await sleep(rnd(250, 450));
     const ghosts = survivors.sort(() => Math.random() - 0.5).slice(0, 3 + Math.floor(Math.random() * 2));
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < 1; k++) {
       ghosts.forEach((i) => { alive.add(i); cards[i].style.visibility = ''; });
-      for (let t = 0; t < 3; t++) { swapStep(2); await sleep(rnd(90, 180)); }
+      for (let t = 0; t < 3; t++) { swapStep(2); await sleep(rnd(80, 140)); }
       ghosts.forEach((i) => kill(i));
-      await sleep(rnd(300, 600));
+      await sleep(rnd(150, 300));
     }
-    await sleep(rnd(500, 1000));
+    await sleep(rnd(250, 500));
     try { sessionStorage.setItem('sd-rebooted', '1'); } catch (e) { console.warn(e); }
     location.reload();
   }
