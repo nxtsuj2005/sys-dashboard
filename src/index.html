@@ -2362,17 +2362,26 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       const c = cards[i]; c.style.visibility = '';
       setTimeout(() => { c.style.visibility = 'hidden'; r(); }, ms);
     });
+    // terminal is a native window: hard on/off flicker plus sideways tears. Runs in the background.
+    const termGlitch = async (steps, endVisible) => {
+      for (const [on, ms] of steps) {
+        vis(on);
+        if (api && api.offsetTerminal) api.offsetTerminal(on ? Math.round(rnd(-90, 90)) : 0, on ? Math.round(rnd(-20, 20)) : 0);
+        await sleep(ms);
+      }
+      if (api && api.offsetTerminal) api.offsetTerminal(0, 0);
+      vis(endVisible);
+    };
     // wave 1: tear, partial recovery, tear again — it does not go down without a fight
     app.classList.add('crash-hit');
-    [0, 90, 170, 260, 330, 430].forEach((t, i) => setTimeout(() => vis(i % 2 === 1), t));
+    termGlitch([[false, 150], [true, 90], [false, 210], [true, 70], [false, 130], [true, 160], [false, 120], [true, 100]], true);
     for (let t = 0; t < 5; t++) { await sleep(150); swapStep(1); }
     await sleep(100);
     app.classList.remove('crash-hit');
     slot.forEach((_, i) => { slot[i] = i; }); place();
-    vis(true);
     await sleep(rnd(350, 700));          // looks almost fine for a beat
     app.classList.add('crash-hit');
-    vis(false);
+    termGlitch([[false, 110], [true, 130], [false, 90], [true, 80], [false, 180], [true, 110], [false, 100], [true, 150], [false, 0]], false);
     // wave 2: tiles swap faster and wilder, then drop out one by one
     for (let t = 0; t < 14; t++) { await sleep(rnd(70, 170)); swapStep(1 + Math.floor(t / 4)); }
     app.classList.add('crash-live');     // app above the black layer so survivors can show on it

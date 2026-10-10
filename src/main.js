@@ -855,6 +855,14 @@ ipcMain.on('terminal-visible', (_event, visible) => {
   }
 });
 
+// Crash-Glitch: xterm hart versetzen (dx/dy in px relativ zur Soll-Position); 0,0 = zurück
+ipcMain.on('terminal-offset', (_event, dx, dy) => {
+  if (!termWid || !termGeom || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+  const x = Math.round(termGeom.x + Math.max(-200, Math.min(200, dx)));
+  const y = Math.round(termGeom.y + Math.max(-60, Math.min(60, dy)));
+  moveTerminalWindow(termWid, x, y, termGeom.w, termGeom.h);
+});
+
 // ── App-Shortcuts (Whitelist) ──────────────────────────────────
 // Der Renderer schickt nur einen der Keys unten. Pro Key eine Kandidatenliste
 // [cmd, ...args] — der Reihe nach probieren, bei ENOENT den nächsten. Immer als
