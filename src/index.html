@@ -534,6 +534,15 @@
     70%  { transform: translateX(2px);  clip-path: inset(0 0 70% 0); opacity: 1; }
     100% { transform: none;             clip-path: inset(0); }
   }
+  /* idle glitch: single cards stutter (never #app, never the terminal) */
+  .ig-on :is(.card, .kpi-card, #compactbar):not(#terminal-card) { animation: ig-card .32s steps(1, end) 1; animation-delay: var(--igd, 0s); }
+  @keyframes ig-card {
+    0%   { transform: translateX(-9px); clip-path: inset(0 0 55% 0); opacity: .7; }
+    30%  { transform: translateX(7px);  clip-path: inset(40% 0 10% 0); opacity: 1; }
+    55%  { transform: translateX(0);    clip-path: inset(0); opacity: .6; }
+    80%  { transform: translateX(-3px) skewX(1.5deg); clip-path: inset(0 0 70% 0); opacity: 1; }
+    100% { transform: none; clip-path: inset(0); opacity: 1; }
+  }
   @keyframes boot-bar-flow { from { background-position: 0 0; } to { background-position: 22px 0; } }
 
   /* ── Dense mode ── */
@@ -2197,8 +2206,45 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
     cards.forEach((c) => c.classList.remove('on'));
   }
 
+  // Random idle glitch: dashboard "re-checks", sorts a few cards wrong, shrugs, sorts back.
+  // Terminal card stays untouched (not in groups, no animation).
+  function scheduleIdleGlitch() {
+    setTimeout(async () => {
+      const app = $('app');
+      const busy = document.hidden || document.body.classList.contains('dash-pre') || $('boot');
+      if (!busy && app) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const kids = ['kpi', 'main', 'bottom'].map((id) => $(id)).filter(Boolean)
+          .map((g) => [...g.children].filter((c) => c.id !== 'terminal-card'));
+        const cards = [...document.querySelectorAll('#app :is(.card, .kpi-card, #compactbar)')]
+          .filter((c) => c.id !== 'terminal-card');
+        const flash = () => {
+          cards.forEach((c) => c.style.setProperty('--igd', (Math.random() * 0.12).toFixed(2) + 's'));
+          app.classList.remove('ig-on'); void app.offsetWidth; app.classList.add('ig-on');
+        };
+        try {
+          flash();
+          for (const g of kids) {
+            if (g.length < 2 || Math.random() < 0.4) continue;
+            const idx = g.map((_, i) => i).sort(() => Math.random() - 0.5);
+            g.forEach((k, i) => { k.style.order = String(idx[i]); });
+          }
+          await sleep(380 + Math.random() * 320);
+          flash();
+          for (const g of kids) g.forEach((k) => { k.style.order = ''; });
+          await sleep(450);
+        } finally {
+          for (const g of kids) g.forEach((k) => { k.style.order = ''; });
+          app.classList.remove('ig-on');
+        }
+      }
+      scheduleIdleGlitch();
+    }, 25000 + Math.random() * 50000);
+  }
+
   // ── Go ──────────────────────────────────────────────────
   startPolling();
+  scheduleIdleGlitch();
   const spawnTerminalAndSync = () => { spawnDashboardTerminal(); syncTerminalGeometry(); };
   runBoot().then(spawnTerminalAndSync).catch(spawnTerminalAndSync);
 })();
