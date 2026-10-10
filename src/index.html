@@ -2426,6 +2426,34 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
     if (rebooted && api && api.setTerminalVisible) { api.setTerminalVisible(true); syncTerminalGeometry(); return; }
     spawnDashboardTerminal(); syncTerminalGeometry();
   };
+  // after a crash, 1–2 survivors flicker in on top of the boot screen, glitch around, vanish again
+  async function bootSurvivors() {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const app = $('app');
+    const pool = [...document.querySelectorAll('#app :is(.card, .kpi-card, #compactbar)')]
+      .filter((c) => c.id !== 'terminal-card' && c.offsetParent !== null);
+    const picks = pool.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+    try {
+      await sleep(rnd(500, 800));
+      if (!$('boot')) return;
+      app.classList.add('crash-live');
+      for (let k = 0; k < 2; k++) {
+        for (const c of picks) {
+          c.style.visibility = 'visible';
+          c.style.translate = `${Math.round(rnd(-160, 160))}px ${Math.round(rnd(-60, 60))}px`;
+          c.classList.remove('ig-hit'); void c.offsetWidth; c.classList.add('ig-hit');
+        }
+        await sleep(rnd(160, 320));
+        picks.forEach((c) => { c.style.visibility = ''; c.style.translate = ''; });
+        await sleep(rnd(120, 300));
+      }
+    } finally {
+      picks.forEach((c) => { c.style.visibility = ''; c.style.translate = ''; c.classList.remove('ig-hit'); });
+      app.classList.remove('crash-live');
+    }
+  }
+  if (rebooted) bootSurvivors().catch((e) => console.warn('bootSurvivors', e));
   runBoot().then(spawnTerminalAndSync).catch(spawnTerminalAndSync);
 })();
 </script>
