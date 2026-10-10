@@ -2327,8 +2327,8 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
     const app = $('app');
     const vis = (v) => { if (api && api.setTerminalVisible) api.setTerminalVisible(v); };
     const rnd = (x, y) => x + Math.random() * (y - x);
-    const cards = [...document.querySelectorAll('#app :is(.card, .kpi-card, #topbar)')]
-      .filter((c) => c.id !== 'terminal-card');
+    const cards = [...document.querySelectorAll('#app :is(.card, .kpi-card, #topbar, #compactbar)')]
+      .filter((c) => c.id !== 'terminal-card' && c.offsetParent !== null);
     // tiles lose their slots: slot[i] = which original position card i currently sits in.
     // Hard jumps (no easing) up/down/left/right, across groups, like the layout can't hold them.
     const home = cards.map((c) => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
