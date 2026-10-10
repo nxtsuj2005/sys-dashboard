@@ -1002,3 +1002,10 @@ ipcMain.on('launch-desktop', (_event, id) => {
   child.on('spawn', () => log(`launch-desktop: ${entry.name}`));
   child.unref();
 });
+
+// `kill -USR2 <pid>` (or bin/glitch) triggers the idle glitch right now, for testing
+process.on('SIGUSR2', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.executeJavaScript('window.__glitch && window.__glitch()').catch((e) => log(`glitch: ${e.message}`));
+  }
+});

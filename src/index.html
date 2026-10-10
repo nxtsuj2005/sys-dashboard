@@ -2218,6 +2218,13 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
   }
 
   async function idleGlitch() {
+    if (window.__glitching) return;
+    window.__glitching = true;
+    try { await idleGlitchRun(); } finally { window.__glitching = false; }
+  }
+  window.__glitch = idleGlitch;
+
+  async function idleGlitchRun() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const rnd = (a, b) => a + Math.random() * (b - a);
     const pick = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
