@@ -18,8 +18,9 @@ app.setName('SysDashboard');
 
 // Stacking über KWin-Fensterregeln (~/.config/kwinrulesrc):
 //   Rule "Dashboard"        → below=Force  (Backdrop, bleibt hinter allem)
-//   Rule "SysDashboardXterm" → nur noborder + skiptaskbar/pager/switcher (Force),
-//                              KEIN below mehr.
+//   Rule "SysDashboardXterm" → below=Force + noborder + skiptaskbar/pager/switcher;
+//                              liegt im selben Band, per windowraise über dem Dashboard.
+//                              Ohne below läge er nach einem Neustart über allen Apps.
 // Grund: Electron 41 ignoriert ELECTRON_OZONE_PLATFORM_HINT=x11 und läuft nativ
 // auf Wayland. Ein X11-`xdotool windowraise` kann den XWayland-xterm dann nicht
 // mehr über das Wayland-Dashboard heben — solange beide below=Force sind, deckt

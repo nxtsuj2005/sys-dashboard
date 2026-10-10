@@ -61,8 +61,9 @@ if [ -n "$KW" ] && [ -n "$KR" ]; then
     local kv
     for kv in "$@"; do "$KW" --file kwinrulesrc --group "$n" --key "${kv%%=*}" "${kv#*=}"; done
   }
-  # xterm-Overlay: rahmenlos, NICHT below (sonst verschwindet er beim Klick hinter dem Dashboard)
-  rule "SysDashboard xterm" noborder=true noborderrule=2 skippager=true skippagerrule=2 \
+  # xterm-Overlay: rahmenlos + below (liegt im selben Band wie das Dashboard, per windowraise darüber;
+  # ohne below legte er sich beim Neustart über laufende Anwendungen)
+  rule "SysDashboard xterm" below=true belowrule=2 noborder=true noborderrule=2 skippager=true skippagerrule=2 \
        skipswitcher=true skipswitcherrule=2 skiptaskbar=true skiptaskbarrule=2 \
        wmclass=SysDashboardXterm wmclasscomplete=false wmclassmatch=1
   # Dashboard-Fenster: immer im Hintergrund
