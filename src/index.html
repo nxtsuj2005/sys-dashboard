@@ -565,6 +565,7 @@
     80%  { transform: translateY(var(--cy, 0px)) scale(.08, .02); opacity: .6; }
     100% { transform: translateY(var(--cy, 0px)) scale(0); opacity: 0; }
   }
+  #app.crash-live { position: relative; z-index: 10000; }
   #crash-black { position: fixed; inset: 0; background: #04070b; z-index: 9999; }
   @keyframes boot-bar-flow { from { background-position: 0 0; } to { background-position: 22px 0; } }
 
@@ -2333,24 +2334,52 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const app = $('app');
     const vis = (v) => { if (api && api.setTerminalVisible) api.setTerminalVisible(v); };
-    app.classList.add('crash-hit');
-    // terminal is a native window: hard on/off flicker, then gone
-    [0, 90, 170, 260, 330, 430].forEach((t, i) => setTimeout(() => vis(i % 2 === 1), t));
-    await sleep(760);
-    vis(false);
+    const rnd = (x, y) => x + Math.random() * (y - x);
     const cards = [...document.querySelectorAll('#app :is(.card, .kpi-card, #topbar)')];
     const H = window.innerHeight;
-    cards.sort(() => Math.random() - 0.5).forEach((c, i) => {
+    const arm = (c, i, d) => {
       const r = c.getBoundingClientRect();
       c.style.setProperty('--cy', Math.round(H - (r.top + r.height / 2) - 6) + 'px');
-      c.style.setProperty('--cd', (i * 0.045).toFixed(3) + 's');
-      c.classList.add('crash-min');
-    });
-    await sleep(cards.length * 45 + 420);
+      c.style.setProperty('--cd', d.toFixed(3) + 's');
+    };
+    const fall = (c) => { c.classList.remove('crash-min'); void c.offsetWidth; c.classList.add('crash-min'); };
+    const revive = (c) => { c.classList.remove('crash-min'); void c.offsetWidth; };
+    // wave 1: tear, partial recovery, tear again — it does not go down without a fight
+    app.classList.add('crash-hit');
+    [0, 90, 170, 260, 330, 430].forEach((t, i) => setTimeout(() => vis(i % 2 === 1), t));
+    await sleep(760);
+    app.classList.remove('crash-hit'); void app.offsetWidth;
+    vis(true);
+    await sleep(rnd(350, 700));          // looks almost fine for a beat
+    app.classList.add('crash-hit');
+    vis(false);
+    await sleep(760);
+    app.classList.add('crash-live');     // app above the black layer so survivors can show on it
+    // wave 2: most cards minimise; survivors twitch back up once or twice before giving in
+    const order = [...cards].sort(() => Math.random() - 0.5);
+    const survivors = order.slice(0, Math.max(3, Math.round(cards.length * 0.3)));
+    order.forEach((c, i) => { arm(c, i, i * 0.06); });
+    order.filter((c) => !survivors.includes(c)).forEach(fall);
+    await sleep(order.length * 60 + 500);
+    for (let round = 0; round < 2; round++) {
+      survivors.forEach((c) => { if (Math.random() < 0.7) revive(c); });
+      await sleep(rnd(180, 400));
+      survivors.forEach(fall);
+      await sleep(rnd(500, 800));
+    }
     const black = document.createElement('div');
     black.id = 'crash-black';
     document.body.append(black);
-    await sleep(900 + Math.random() * 900);
+    // "boot screen": a few survivors respawn on black for a moment, then vanish again
+    await sleep(rnd(500, 900));
+    const ghosts = survivors.sort(() => Math.random() - 0.5).slice(0, 3 + Math.floor(Math.random() * 2));
+    for (let k = 0; k < 2; k++) {
+      ghosts.forEach((c) => { c.style.setProperty('--cd', '0s'); revive(c); });
+      await sleep(rnd(250, 600));
+      ghosts.forEach(fall);
+      await sleep(rnd(300, 600));
+    }
+    await sleep(rnd(500, 1000));
     try { sessionStorage.setItem('sd-rebooted', '1'); } catch (e) { console.warn(e); }
     location.reload();
   }
