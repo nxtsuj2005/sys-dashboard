@@ -2371,6 +2371,10 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       }
       if (api && api.offsetTerminal) api.offsetTerminal(0, 0);
       vis(endVisible);
+      if (!endVisible) {   // frame goes down with its window: one last stutter, then gone
+        const tc = $('terminal-card');
+        if (tc) { tc.classList.add('ig-hit'); await sleep(260); tc.style.visibility = 'hidden'; }
+      }
     };
     // wave 1: tear, partial recovery, tear again — it does not go down without a fight
     app.classList.add('crash-hit');
