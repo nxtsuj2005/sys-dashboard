@@ -5,7 +5,8 @@
   "main": "src/main.js",
   "scripts": {
     "start": "ELECTRON_OZONE_PLATFORM_HINT=x11 electron .",
-    "install-deps": "npm install"
+    "install-deps": "npm install",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "electron": "^41.1.1"
