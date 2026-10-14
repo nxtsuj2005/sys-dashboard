@@ -173,8 +173,9 @@ function createWindow() {
   });
   mainWindow.on('closed', () => { mainWindow = null; });
   // Renderer-Reload: aktuellen Verdeckt-Status erneut zustellen.
-  mainWindow.webContents.on('did-finish-load', () => {
-    if (occluded) mainWindow.webContents.send('occlusion', true);
+  const win = mainWindow;
+  win.webContents.on('did-finish-load', () => {
+    if (occluded && !win.isDestroyed()) win.webContents.send('occlusion', true);
   });
   // Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über den
   // xterm — den xterm danach zurück nach oben holen, sonst verschwindet er.
@@ -342,7 +343,8 @@ function stopBatteryMonitor() {
 // hinter maximierten Apps mit voller Rate weiter. Ein KWin-Script
 // (kwin-occlusion.js) meldet den Zustand als D-Bus-Call an einen unbelegten
 // Namen; dbus-monitor liest mit. Nur Calls von KWin selbst zählen. Fail-open:
-// kein Heartbeat → gilt als sichtbar.
+// kein Heartbeat → gilt als sichtbar. Bekannte Grenze: nach einem KWin-Neustart
+// (neuer Unique-Name, Script weg) bleibt es bis zum Dashboard-Neustart sichtbar.
 const OCC_SCRIPT_NAME = 'sys-dashboard-occlusion';
 const OCC_IFACE = 'org.sysdash.Occlusion';
 const OCC_PATH = '/occlusion';
@@ -364,15 +366,18 @@ function setOccluded(v) {
 
 async function startOcclusionWatch() {
   if (!/KDE/i.test(process.env.XDG_CURRENT_DESKTOP || '')) return;
-  occStopped = false;
   const owner = /'([^']+)'/.exec(await gdbusCall('org.freedesktop.DBus', '/org/freedesktop/DBus',
     'org.freedesktop.DBus.GetNameOwner', 'org.kde.KWin'));
   if (!owner) throw new Error('KWin nicht auf dem Session-Bus');
   const kwinSender = owner[1];
+  if (occStopped) return;
 
-  occMonitor = spawn('dbus-monitor', ['--session', `type='method_call',interface='${OCC_IFACE}'`],
-    { stdio: ['ignore', 'pipe', 'ignore'] });
-  let buf = '', fromKwin = false;
+  // sender= in der Match-Rule: andere Clients kommen gar nicht erst durch
+  // (sonst ließe sich die Zeilen-Ausgabe per String-Argument fälschen).
+  occMonitor = spawn('dbus-monitor', ['--session',
+    `type='method_call',sender='${kwinSender}',interface='${OCC_IFACE}',member='Report'`],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  let buf = '', fromKwin = false, errTail = '';
   occMonitor.stdout.on('data', (chunk) => {
     buf += chunk;
     const lines = buf.split('\n');
@@ -386,17 +391,30 @@ async function startOcclusionWatch() {
       if (m) { fromKwin = false; occLastBeat = Date.now(); setOccluded(m[1] === 'true'); }
     }
   });
-  occMonitor.on('error', (e) => log(`Occlusion: dbus-monitor fehlt (${e.message}) — rendert immer`));
-  occMonitor.on('exit', () => {
-    occMonitor = null;
+  occMonitor.stderr.on('data', (chunk) => { errTail = (errTail + chunk).slice(-500); });
+  const mon = occMonitor;
+  mon.on('exit', (code) => {
+    if (occMonitor === mon) occMonitor = null;
     setOccluded(false);
-    if (!occStopped) log('Occlusion: dbus-monitor beendet — rendert immer');
+    if (!occStopped) log(`Occlusion: dbus-monitor beendet (${code}) — rendert immer${errTail ? `: ${errTail.trim()}` : ''}`);
   });
+  await new Promise((resolve, reject) => {
+    mon.once('spawn', resolve);
+    mon.once('error', reject);
+  }).catch((e) => {
+    if (occMonitor === mon) occMonitor = null;
+    throw new Error(`dbus-monitor fehlt (${e.message})`);
+  });
+  mon.on('error', (e) => log(`Occlusion: dbus-monitor: ${e.message}`));
+  if (occStopped) { mon.kill('SIGTERM'); return; }
+  // Auch ein Script, das nie meldet (z. B. JS-Fehler in KWin), wird geloggt.
+  occLastBeat = Date.now();
+  let beatLost = false;
   occStaleTimer = setInterval(() => {
-    if (occluded && Date.now() - occLastBeat > OCC_STALE_MS) {
-      log('Occlusion: kein Heartbeat von KWin');
-      setOccluded(false);
-    }
+    const stale = Date.now() - occLastBeat > OCC_STALE_MS;
+    if (stale && !beatLost) log('Occlusion: kein Heartbeat von KWin — rendert immer (KWin-Log prüfen)');
+    beatLost = stale;
+    if (stale) setOccluded(false);
   }, 2000);
 
   const file = path.join(DASH_DIR, 'kwin-occlusion.js');
@@ -409,9 +427,14 @@ async function startOcclusionWatch() {
   // Reste eines abgestürzten Laufs zuerst entladen (gleicher Name).
   await gdbusCall('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting.unloadScript', OCC_SCRIPT_NAME)
     .catch((e) => log(`Occlusion: unloadScript: ${e.message}`));
+  if (occStopped) return;
   const id = /(-?\d+)/.exec(await gdbusCall('org.kde.KWin', '/Scripting',
     'org.kde.kwin.Scripting.loadScript', file, OCC_SCRIPT_NAME));
   if (!id || +id[1] < 0) throw new Error('loadScript abgelehnt');
+  if (occStopped) {                             // Quit kam während des Ladens
+    await gdbusCall('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting.unloadScript', OCC_SCRIPT_NAME);
+    return;
+  }
   await gdbusCall('org.kde.KWin', `/Scripting/Script${id[1]}`, 'org.kde.kwin.Script.run');
   log('Occlusion: KWin-Script aktiv');
 }
@@ -422,7 +445,7 @@ function stopOcclusionWatch() {
   clearInterval(occStaleTimer);
   occStaleTimer = null;
   if (occMonitor) {
-    try { occMonitor.kill('SIGTERM'); } catch {}
+    try { occMonitor.kill('SIGTERM'); } catch (e) { log(`Occlusion: dbus-monitor kill: ${e.message}`); }
     occMonitor = null;
   }
   try {
