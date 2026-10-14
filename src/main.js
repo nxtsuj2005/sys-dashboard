@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
-const { exec, execFile, execSync, spawn } = require('child_process');
+const { exec, execFile, execFileSync, execSync, spawn } = require('child_process');
 const os   = require('os');
 const fs   = require('fs');
 const path = require('path');
@@ -12,6 +12,11 @@ let storageMonitorStopped = false;
 let batteryMonitor = null;
 let batteryNotifyTimer = null;
 let batteryMonitorRetries = 0;
+let occMonitor = null;
+let occStaleTimer = null;
+let occStopped = false;
+let occluded = false;
+let occLastBeat = 0;
 let batteryMonitorStopped = false;
 
 app.setName('SysDashboard');
@@ -167,6 +172,10 @@ function createWindow() {
     mainWindow.focus();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  // Renderer-Reload: aktuellen Verdeckt-Status erneut zustellen.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (occluded) mainWindow.webContents.send('occlusion', true);
+  });
   // Klick/Fokus aufs Dashboard hebt das Electron-Fenster im "unten"-Band über den
   // xterm — den xterm danach zurück nach oben holen, sonst verschwindet er.
   mainWindow.on('focus', () => raiseTerminalSoon());
@@ -192,12 +201,14 @@ if (!gotSingleInstanceLock) {
     createWindow();
     startStorageMonitor();
     startBatteryMonitor();
+    startOcclusionWatch().catch((e) => log(`Occlusion: Start fehlgeschlagen (${e.message}) — rendert immer`));
   });
 }
 
 app.on('window-all-closed', () => {
   stopStorageMonitor();
   stopBatteryMonitor();
+  stopOcclusionWatch();
   killExternalTerminal();
   log('Dashboard beendet');
   app.quit();
@@ -205,10 +216,10 @@ app.on('window-all-closed', () => {
 
 // Aufräumen auch auf nicht-graceful Pfaden (SIGKILL kann man nicht abfangen,
 // aber SIGTERM/SIGINT/SIGHUP und before-quit schon).
-app.on("before-quit", () => { stopStorageMonitor(); stopBatteryMonitor(); killExternalTerminal(); });
+app.on("before-quit", () => { stopStorageMonitor(); stopBatteryMonitor(); stopOcclusionWatch(); killExternalTerminal(); });
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(sig, () => {
-    try { killExternalTerminal(); stopStorageMonitor(); stopBatteryMonitor(); } catch {}
+    try { killExternalTerminal(); stopStorageMonitor(); stopBatteryMonitor(); stopOcclusionWatch(); } catch {}
     app.quit();
     process.exit(0);
   });
@@ -324,6 +335,100 @@ function stopBatteryMonitor() {
     try { batteryMonitor.kill('SIGTERM'); } catch {}
     batteryMonitor = null;
   }
+}
+
+// ── Occlusion (KWin) ───────────────────────────────────────────
+// Chromium auf Wayland erfährt nie, dass das Dashboard verdeckt ist, und malt
+// hinter maximierten Apps mit voller Rate weiter. Ein KWin-Script
+// (kwin-occlusion.js) meldet den Zustand als D-Bus-Call an einen unbelegten
+// Namen; dbus-monitor liest mit. Nur Calls von KWin selbst zählen. Fail-open:
+// kein Heartbeat → gilt als sichtbar.
+const OCC_SCRIPT_NAME = 'sys-dashboard-occlusion';
+const OCC_IFACE = 'org.sysdash.Occlusion';
+const OCC_PATH = '/occlusion';
+const OCC_STALE_MS = 6000;
+
+function gdbusCall(dest, objPath, method, ...args) {
+  return new Promise((resolve, reject) => {
+    execFile('gdbus', ['call', '--session', '-d', dest, '-o', objPath, '-m', method, ...args],
+      { timeout: 3000 }, (err, out) => err ? reject(err) : resolve(String(out).trim()));
+  });
+}
+
+function setOccluded(v) {
+  if (v === occluded) return;
+  occluded = v;
+  log(`Occlusion: ${v ? 'verdeckt — Rendering pausiert' : 'sichtbar'}`);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('occlusion', v);
+}
+
+async function startOcclusionWatch() {
+  if (!/KDE/i.test(process.env.XDG_CURRENT_DESKTOP || '')) return;
+  occStopped = false;
+  const owner = /'([^']+)'/.exec(await gdbusCall('org.freedesktop.DBus', '/org/freedesktop/DBus',
+    'org.freedesktop.DBus.GetNameOwner', 'org.kde.KWin'));
+  if (!owner) throw new Error('KWin nicht auf dem Session-Bus');
+  const kwinSender = owner[1];
+
+  occMonitor = spawn('dbus-monitor', ['--session', `type='method_call',interface='${OCC_IFACE}'`],
+    { stdio: ['ignore', 'pipe', 'ignore'] });
+  let buf = '', fromKwin = false;
+  occMonitor.stdout.on('data', (chunk) => {
+    buf += chunk;
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (line.startsWith('method call')) {
+        fromKwin = line.includes(`sender=${kwinSender} `) && line.includes('member=Report');
+        continue;
+      }
+      const m = fromKwin && /^\s*boolean (true|false)/.exec(line);
+      if (m) { fromKwin = false; occLastBeat = Date.now(); setOccluded(m[1] === 'true'); }
+    }
+  });
+  occMonitor.on('error', (e) => log(`Occlusion: dbus-monitor fehlt (${e.message}) — rendert immer`));
+  occMonitor.on('exit', () => {
+    occMonitor = null;
+    setOccluded(false);
+    if (!occStopped) log('Occlusion: dbus-monitor beendet — rendert immer');
+  });
+  occStaleTimer = setInterval(() => {
+    if (occluded && Date.now() - occLastBeat > OCC_STALE_MS) {
+      log('Occlusion: kein Heartbeat von KWin');
+      setOccluded(false);
+    }
+  }, 2000);
+
+  const file = path.join(DASH_DIR, 'kwin-occlusion.js');
+  const src = fs.readFileSync(path.join(__dirname, 'kwin-occlusion.js'), 'utf8')
+    .replace('__DASH_PID__', String(process.pid))
+    .replace('__DBUS_SERVICE__', OCC_IFACE)
+    .replace('__DBUS_PATH__', OCC_PATH)
+    .replace('__DBUS_IFACE__', OCC_IFACE);
+  fs.writeFileSync(file, src);
+  // Reste eines abgestürzten Laufs zuerst entladen (gleicher Name).
+  await gdbusCall('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting.unloadScript', OCC_SCRIPT_NAME)
+    .catch((e) => log(`Occlusion: unloadScript: ${e.message}`));
+  const id = /(-?\d+)/.exec(await gdbusCall('org.kde.KWin', '/Scripting',
+    'org.kde.kwin.Scripting.loadScript', file, OCC_SCRIPT_NAME));
+  if (!id || +id[1] < 0) throw new Error('loadScript abgelehnt');
+  await gdbusCall('org.kde.KWin', `/Scripting/Script${id[1]}`, 'org.kde.kwin.Script.run');
+  log('Occlusion: KWin-Script aktiv');
+}
+
+function stopOcclusionWatch() {
+  if (occStopped) return;
+  occStopped = true;
+  clearInterval(occStaleTimer);
+  occStaleTimer = null;
+  if (occMonitor) {
+    try { occMonitor.kill('SIGTERM'); } catch {}
+    occMonitor = null;
+  }
+  try {
+    execFileSync('gdbus', ['call', '--session', '-d', 'org.kde.KWin', '-o', '/Scripting',
+      '-m', 'org.kde.kwin.Scripting.unloadScript', OCC_SCRIPT_NAME], { timeout: 1000, stdio: 'ignore' });
+  } catch (e) { log(`Occlusion: unloadScript beim Beenden: ${e.message}`); }
 }
 
 // ── IPC: RAM ───────────────────────────────────────────────────

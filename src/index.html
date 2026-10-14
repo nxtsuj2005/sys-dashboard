@@ -804,6 +804,24 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
 
 <script>
 'use strict';
+// Verdeckt (KWin meldet maximiertes/Vollbild-Fenster darüber) zählt wie
+// document.hidden — so greifen alle bestehenden Sichtbarkeits-Pausen.
+(() => {
+  if (!window.api || !window.api.onOcclusion) return;
+  const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+  const stateDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  let occluded = false;
+  Object.defineProperty(document, 'hidden', { configurable: true, get() { return occluded || desc.get.call(this); } });
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true, get() { return occluded ? 'hidden' : stateDesc.get.call(this); },
+  });
+  window.api.onOcclusion((v) => {
+    if (v === occluded) return;
+    const was = document.hidden;
+    occluded = v;
+    if (document.hidden !== was) document.dispatchEvent(new Event('visibilitychange'));
+  });
+})();
 (function () {
   const api = window.api;
   // Hardware-Profil aus dem Preload (Kerne, Akku, systemd, Tools, Tier …) — darf fehlen

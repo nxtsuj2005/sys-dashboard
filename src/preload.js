@@ -33,6 +33,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('storage-changed', listener);
     return () => ipcRenderer.removeListener('storage-changed', listener);
   },
+  onOcclusion: (cb) => {
+    const listener = (_e, v) => cb(!!v);
+    ipcRenderer.on('occlusion', listener);
+    return () => ipcRenderer.removeListener('occlusion', listener);
+  },
   onBatteryChanged: (cb) => {
     const listener = () => cb();
     ipcRenderer.on('battery-changed', listener);

@@ -15,10 +15,10 @@ warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*" >&2; }
 
 # ── 1. System-Pakete ─────────────────────────────────────────
 say "System-Pakete"
-if   command -v dnf    >/dev/null; then sudo dnf install -y nodejs npm xterm xdotool fish curl glib2 systemd-udev
-elif command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y nodejs npm xterm xdotool fish curl libglib2.0-bin udev
+if   command -v dnf    >/dev/null; then sudo dnf install -y nodejs npm xterm xdotool fish curl glib2 systemd-udev dbus-tools
+elif command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y nodejs npm xterm xdotool fish curl libglib2.0-bin udev dbus-bin
 elif command -v pacman >/dev/null; then sudo pacman -S --needed --noconfirm nodejs npm xterm xdotool fish curl glib2 systemd
-else warn "Kein bekannter Paketmanager — installiere manuell: node, npm, xterm, xdotool, fish, curl, gio, udevadm"; fi
+else warn "Kein bekannter Paketmanager — installiere manuell: node, npm, xterm, xdotool, fish, curl, gio, udevadm, dbus-monitor"; fi
 
 # ── 2. Repo an den Pfad legen, den main.js erwartet ──────────
 say "Verknüpfe $TARGET"
