@@ -15,7 +15,7 @@ function harness(fps = 14) {
     return id;
   };
   const context = {
-    GLIDE_FPS: fps, performance: { now: () => now },
+    GLIDE_FPS: fps, performance: { now: () => now }, window: {},
     document: { hidden: false, addEventListener: (name, fn) => { events[name] = fn; } },
     setTimeout: (fn, delay) => add(fn, now + Math.max(1, delay)),
     clearTimeout: key => tasks.delete(key),
@@ -88,4 +88,26 @@ test('low hardware tier retains its configured repaint limit', () => {
 
 test('all inline scripts remain valid JavaScript', () => {
   for (const [, script] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) new vm.Script(script);
+});
+
+test('glide hooks (header gauges) run only on paced paint frames', () => {
+  const h = harness();
+  const calls = [];
+  h.context.window.glideHooks.push(snap => calls.push(snap));
+  h.kick();
+  h.advance(1000);
+  assert.equal(calls.length, h.paints);
+  assert.ok(calls.every(snap => snap === false));
+  h.context.window.kickGlide();
+  h.advance(1000);
+  assert.equal(calls.length, h.paints);
+});
+
+test('zero-FPS mode snaps glide hooks instead of easing', () => {
+  const h = harness(0);
+  const calls = [];
+  h.context.window.glideHooks.push(snap => calls.push(snap));
+  h.kick();
+  assert.deepEqual(calls, [true]);
+  assert.equal(h.tasks.size, 0);
 });
