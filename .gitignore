@@ -3,3 +3,4 @@ dashboard.log
 xterm.pid
 .claude/
 profile.json
+/kwin-occlusion.js

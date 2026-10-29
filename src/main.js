@@ -1,8 +1,26 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const { exec, execFile, execFileSync, execSync, spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+const { randomUUID } = require('crypto');
 const os   = require('os');
 const fs   = require('fs');
 const path = require('path');
+const INDEX_URL = pathToFileURL(path.join(__dirname, 'index.html')).href;
+const RSS_URL = 'https://www.heise.de/rss/heise-atom.xml';
+
+function withTrustedSender(channel, handler) {
+  return (event, ...args) => {
+    const url = event.senderFrame?.url;
+    if (typeof url !== 'string' || !url.startsWith(INDEX_URL) ||
+        !['', '?', '#'].includes(url.slice(INDEX_URL.length, INDEX_URL.length + 1))) {
+      log(`IPC ${channel}: Absender abgelehnt`);
+      return undefined;
+    }
+    return handler(event, ...args);
+  };
+}
+const handleIpc = (channel, handler) => ipcMain.handle(channel, withTrustedSender(channel, handler));
+const onIpc = (channel, handler) => ipcMain.on(channel, withTrustedSender(channel, handler));
 
 let mainWindow;
 let storageMonitor = null;
@@ -43,7 +61,8 @@ const XTERM_PID  = path.join(DASH_DIR, 'xterm.pid');
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   process.stdout.write(line);
-  try { fs.appendFileSync(LOG_FILE, line); } catch {}
+  try { fs.appendFileSync(LOG_FILE, line); }
+  catch (e) { process.stderr.write(`Logdatei nicht beschreibbar: ${e.message}\n`); }
 }
 
 function rotateLogIfLarge() {
@@ -53,7 +72,7 @@ function rotateLogIfLarge() {
     const kept = fs.readFileSync(LOG_FILE, 'utf8').split('\n').slice(-500);
     fs.writeFileSync(LOG_FILE, kept.join('\n'));
     log('Log rotiert (letzte 500 Zeilen behalten)');
-  } catch {}
+  } catch (e) { log('Logrotation fehlgeschlagen: ' + e.message); }
 }
 
 function detectBattery() {
@@ -80,7 +99,7 @@ function readX11WorkArea() {
     if (nums.length >= 4 && nums[2] > 0 && nums[3] > 0) {
       return { x: nums[0], y: nums[1], width: nums[2], height: nums[3] };
     }
-  } catch {}
+  } catch (e) { log('X11-Arbeitsbereich nicht lesbar: ' + e.message); }
   return null;
 }
 
@@ -156,6 +175,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       additionalArguments: [
         `--sys-dashboard-has-battery=${PROFILE.battery ? '1' : '0'}`,
         `--sys-dashboard-profile=${Buffer.from(JSON.stringify(PROFILE)).toString('base64')}`,
@@ -163,6 +183,17 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     backgroundColor: '#0d0f14',
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url).catch((e) => log('Externer Link fehlgeschlagen: ' + e.message));
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.split(/[?#]/)[0] === INDEX_URL) return;   // location.reload() (crash reboot)
+    event.preventDefault();
+    log('Navigation im Dashboard blockiert');
   });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => {
@@ -220,7 +251,8 @@ app.on('window-all-closed', () => {
 app.on("before-quit", () => { stopStorageMonitor(); stopBatteryMonitor(); stopOcclusionWatch(); killExternalTerminal(); });
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(sig, () => {
-    try { killExternalTerminal(); stopStorageMonitor(); stopBatteryMonitor(); stopOcclusionWatch(); } catch {}
+    try { killExternalTerminal(); stopStorageMonitor(); stopBatteryMonitor(); stopOcclusionWatch(); }
+    catch (e) { log('Aufräumen fehlgeschlagen: ' + e.message); }
     app.quit();
     process.exit(0);
   });
@@ -278,7 +310,7 @@ function stopStorageMonitor() {
   clearTimeout(storageNotifyTimer);
   storageNotifyTimer = null;
   if (storageMonitor) {
-    try { storageMonitor.kill('SIGTERM'); } catch {}
+    try { storageMonitor.kill('SIGTERM'); } catch (e) { log('Storage-Monitor beenden: ' + e.message); }
     storageMonitor = null;
   }
 }
@@ -333,7 +365,7 @@ function stopBatteryMonitor() {
   clearTimeout(batteryNotifyTimer);
   batteryNotifyTimer = null;
   if (batteryMonitor) {
-    try { batteryMonitor.kill('SIGTERM'); } catch {}
+    try { batteryMonitor.kill('SIGTERM'); } catch (e) { log('Battery-Monitor beenden: ' + e.message); }
     batteryMonitor = null;
   }
 }
@@ -484,7 +516,7 @@ function readHottestTempC() {
     return milli === null ? null : Math.round(milli / 1000);
   } catch { return null; }
 }
-ipcMain.handle('get-system-stats', async () => {
+handleIpc('get-system-stats', async () => {
   return new Promise((resolve) => {
     const s = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
     setTimeout(() => {
@@ -503,13 +535,16 @@ ipcMain.handle('get-system-stats', async () => {
 });
 
 // ── IPC: Hostname ──────────────────────────────────────────────
-ipcMain.handle('get-hostname', () => { try { return os.hostname(); } catch { return ''; } });
+handleIpc('get-hostname', () => { try { return os.hostname(); } catch (e) { log('get-hostname: ' + e.message); return ''; } });
 
 // ── IPC: systemd-Dienste ───────────────────────────────────────
-ipcMain.handle('get-services', async () => new Promise((resolve) => {
+handleIpc('get-services', async () => new Promise((resolve) => {
   const done = (r) => resolve(r);
   const run = (cmd) => new Promise((res) => {
-    exec(cmd, { timeout: 4000 }, (err, out) => res(err ? '' : (out || '')));
+    exec(cmd, { timeout: 4000 }, (err, out) => {
+      if (err) log('get-services: ' + err.message);
+      res(err ? '' : (out || ''));
+    });
   });
   const parseFailed = (text) => {
     const list = [];
@@ -536,11 +571,11 @@ ipcMain.handle('get-services', async () => new Promise((resolve) => {
     const failed = [...byName.values()];
     const runningCount = running.split('\n').filter(l => l.trim()).length;
     done({ failed, failedCount: failed.length, runningCount });
-  }).catch(() => done({ failed: [], failedCount: 0, runningCount: 0 }));
+  }).catch((e) => { log('get-services: ' + e.message); done({ failed: [], failedCount: 0, runningCount: 0 }); });
 }));
 
 // ── IPC: Network ───────────────────────────────────────────────
-ipcMain.handle('get-net', async () => {
+handleIpc('get-net', async () => {
   return new Promise((resolve) => {
     const read = () => {
       try {
@@ -565,14 +600,14 @@ ipcMain.handle('get-net', async () => {
 });
 
 // ── IPC: lsblk ─────────────────────────────────────────────────
-ipcMain.handle('get-lsblk', async () => new Promise((resolve) => {
+handleIpc('get-lsblk', async () => new Promise((resolve) => {
   exec('lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,MOUNTPOINTS,LABEL,FSTYPE,TRAN,MODEL,FSUSE%,FSAVAIL,FSSIZE -J 2>/dev/null || lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,LABEL,FSTYPE,TRAN,MODEL -J 2>/dev/null || lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,LABEL',
-    (err,out) => resolve(out||'lsblk nicht verfügbar'));
+    (err,out) => { if (err) log('get-lsblk: ' + err.message); resolve(out||'lsblk nicht verfügbar'); });
 }));
 
 // ── IPC: Disk I/O (KB/s per Gerät) ────────────────────────────
 const DISK_RE = /^(sd[a-z]+|hd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+|xvd[a-z]+)$/;
-ipcMain.handle('get-disk-io', async () => new Promise((resolve) => {
+handleIpc('get-disk-io', async () => new Promise((resolve) => {
   const readStats = () => {
     try {
       const map = {};
@@ -585,7 +620,7 @@ ipcMain.handle('get-disk-io', async () => new Promise((resolve) => {
         map[name] = { r: parseInt(p[5])||0, w: parseInt(p[9])||0 };
       });
       return map;
-    } catch { return {}; }
+    } catch (e) { log('get-disk-io: ' + e.message); return {}; }
   };
   const s = readStats();
   setTimeout(() => {
@@ -604,16 +639,17 @@ ipcMain.handle('get-disk-io', async () => new Promise((resolve) => {
 }));
 
 // ── IPC: Top-Prozesse (CPU jetzt, Delta-Sampling wie get-disk-io) ──────
-ipcMain.handle('get-top-procs', async () => new Promise((resolve) => {
+handleIpc('get-top-procs', async () => new Promise((resolve) => {
   const nCpu = os.cpus().length || 1;
   const readAll = () => {
     const snap = { total: 0, procs: {} };
     try {
       const cpu = fs.readFileSync('/proc/stat', 'utf8').split('\n', 1)[0].trim().split(/\s+/).slice(1).map(Number);
       snap.total = cpu.reduce((a, b) => a + (b || 0), 0);
-    } catch {}
+    } catch (e) { log('get-top-procs CPU: ' + e.message); }
     let pids = [];
-    try { pids = fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d)); } catch {}
+    try { pids = fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d)); }
+    catch (e) { log('get-top-procs /proc: ' + e.message); }
     for (const pid of pids) {
       try {
         const st = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -650,29 +686,53 @@ ipcMain.handle('get-top-procs', async () => new Promise((resolve) => {
 }));
 
 // ── IPC: Weather ───────────────────────────────────────────────
-ipcMain.handle('get-weather', async (_,city) => new Promise((resolve) => {
+handleIpc('get-weather', async (_,city) => new Promise((resolve) => {
+  if (typeof city !== 'string' || city.length > 64) {
+    log('get-weather: ungültige Stadt');
+    return resolve(null);
+  }
   const u = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
-  execFile('curl', ['-s', '--max-time', '5', '--', u], { maxBuffer: 1<<20 },
-    (err,out) => { try { resolve(JSON.parse(out)); } catch { resolve(null); } });
+  execFile('curl', ['-s', '--proto', '=https', '--max-filesize', '1048576', '--max-time', '5', '--', u], { maxBuffer: 1<<20 },
+    (err,out) => {
+      if (err) { log('get-weather: ' + err.message); return resolve(null); }
+      try { resolve(JSON.parse(out)); }
+      catch (e) { log('get-weather JSON: ' + e.message); resolve(null); }
+    });
 }));
 
 // ── IPC: RSS ───────────────────────────────────────────────────
-ipcMain.handle('get-rss', async (_,url) => new Promise((resolve) => {
-  if (!/^https?:\/\//i.test(url)) return resolve('');           // nur http(s), kein Shell-Kram
-  execFile('curl', ['-s', '--max-time', '8', '--', url], { maxBuffer: 1<<20 },
-    (err,out) => resolve(out||''));
+handleIpc('get-rss', async () => new Promise((resolve) => {
+  execFile('curl', ['-s', '--proto', '=https', '--max-filesize', '1048576', '--max-time', '8', '--', RSS_URL], { maxBuffer: 1<<20 },
+    (err,out) => { if (err) log('get-rss: ' + err.message); resolve(err ? '' : (out||'')); });
 }));
 
 // ── IPC: Notes ─────────────────────────────────────────────────
 const NOTES = path.join(os.homedir(), '.dashboard-notes.txt');
-ipcMain.handle('save-notes', (_,txt) => {
-  try { fs.writeFileSync(NOTES, txt, 'utf8'); return true; }
+handleIpc('save-notes', (_,txt) => {
+  if (typeof txt !== 'string' || Buffer.byteLength(txt, 'utf8') > (1<<20)) {
+    log('save-notes: ungültiger Text oder größer als 1 MiB');
+    return false;
+  }
+  const tmp = `${NOTES}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, txt, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, NOTES);
+    return true;
+  }
   catch (e) { log('save-notes fehlgeschlagen: ' + e.message); return false; }
+  finally {
+    try { fs.unlinkSync(tmp); }
+    catch (e) { if (e.code !== 'ENOENT') log('save-notes Tempdatei entfernen: ' + e.message); }
+  }
 });
-ipcMain.handle('load-notes', () => { try { return fs.readFileSync(NOTES,'utf8'); } catch { return ''; } });
+handleIpc('load-notes', () => {
+  try { return fs.readFileSync(NOTES,'utf8'); }
+  catch (e) { if (e.code !== 'ENOENT') log('load-notes: ' + e.message); return ''; }
+});
 
 // ── IPC: Battery (sysfs) ───────────────────────────────────────
-ipcMain.handle('get-battery', () => {
+handleIpc('get-battery', () => {
   const root = '/sys/class/power_supply';
   const rd   = (p) => { try { return fs.readFileSync(p,'utf8').trim(); } catch { return null; } };
 
@@ -714,11 +774,11 @@ ipcMain.handle('get-battery', () => {
 });
 
 // ── IPC: Logs ──────────────────────────────────────────────────
-ipcMain.handle('get-logs', () => {
+handleIpc('get-logs', () => {
   try {
     const lines = fs.readFileSync(LOG_FILE,'utf8').split('\n').filter(Boolean);
     return lines.slice(-150).join('\n');
-  } catch { return '(Noch keine Logs)'; }
+  } catch (e) { if (e.code !== 'ENOENT') log('get-logs: ' + e.message); return '(Noch keine Logs)'; }
 });
 
 // ── Externes Terminal (xterm als rahmenlose Overlay-Fenster) ──
@@ -752,7 +812,7 @@ let lastRaiseTs         = 0;       // Zeitpunkt des letzten windowraise (leading
 // Kraft), also kommt der xterm NICHT über normale Fenster — nur über das Dashboard.
 function raiseTerminal() {
   if (!termWid) return;
-  exec(`xdotool windowraise ${termWid}`, (e) => { if (e) log('raiseTerminal: ' + e.message); });
+  execFile('xdotool', ['windowraise', termWid], (e) => { if (e) log('raiseTerminal: ' + e.message); });
 }
 
 // Klick-/Fokus-Pfad: KWin hebt bei jedem Klick das Dashboard übern xterm — den
@@ -780,26 +840,26 @@ function toScreenGeom(geom) {
 }
 
 function killOldXterm() {
-  // a. Pid aus Pidfile — aber nur killen, wenn die cmdline wirklich unser xterm ist
   try {
-    const pid = parseInt(fs.readFileSync(XTERM_PID,'utf8').trim());
-    if (pid) {
+    const uid = process.getuid();
+    for (const pid of fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p))) {
       try {
-        const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-        if (cmdline.includes('SysDashboardXterm')) {
-          process.kill(pid, 'SIGTERM');
-          log(`Alter xterm (PID ${pid}) beendet`);
-        }
-      } catch {}
+        if (fs.statSync(`/proc/${pid}`).uid !== uid) continue;
+        const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+        if (path.basename(argv[0]) !== 'xterm' || !argv.includes('SysDashboardXterm')) continue;
+        process.kill(Number(pid), 'SIGTERM');
+        log(`Alter xterm (PID ${pid}) beendet`);
+      } catch (e) {
+        if (e.code !== 'ENOENT' && e.code !== 'ESRCH') log(`xterm-Orphan PID ${pid}: ${e.message}`);
+      }
     }
-  } catch {}
-  // b. Egal was war — alle übrig gebliebenen Orphans wegfegen (auch die ohne Pidfile)
-  try {
-    require('child_process').execFileSync('pkill', ['-f', 'SysDashboardXterm'], { timeout: 2000 });
-    log('xterm-Orphans via pkill entfernt');
-  } catch {}  // pkill exit != 0 wenn nichts passte — schlucken
-  // c. Pidfile weg
-  try { fs.unlinkSync(XTERM_PID); } catch {}
+  } catch (e) { log('xterm-Orphans suchen: ' + e.message); }
+  removeXtermPidfile();
+}
+
+function removeXtermPidfile() {
+  try { fs.unlinkSync(XTERM_PID); }
+  catch (e) { if (e.code !== 'ENOENT') log('xterm-Pidfile entfernen: ' + e.message); }
 }
 
 function killExternalTerminal() {
@@ -808,10 +868,14 @@ function killExternalTerminal() {
   if (termProc && termProc.pid) {
     // Negative PID = ganze Prozessgruppe (detached: true macht xterm zum Gruppenleiter)
     try { process.kill(-termProc.pid, 'SIGTERM'); }
-    catch { try { termProc.kill('SIGTERM'); } catch {} }
+    catch (e) {
+      if (e.code !== 'ESRCH') log('xterm-Prozessgruppe beenden: ' + e.message);
+      try { termProc.kill('SIGTERM'); }
+      catch (err) { if (err.code !== 'ESRCH') log('xterm beenden: ' + err.message); }
+    }
     termProc = null;
   }
-  try { fs.unlinkSync(XTERM_PID); } catch {}
+  removeXtermPidfile();
 }
 
 function applyWindowProps(wid, x, y, w, h) {
@@ -824,19 +888,25 @@ function applyWindowProps(wid, x, y, w, h) {
   setTimeout(() => { applyPropsInFlight = false; }, 3000);
   // Fenster sofort verstecken → konfigurieren → an richtiger Position einblenden
   // So sieht der Nutzer nie einen dekorierten oder falsch positionierten Flash
-  exec(`xdotool windowunmap ${wid}`, () => {
+  execFile('xdotool', ['windowunmap', wid], (err) => {
+    if (err) log('xterm windowunmap: ' + err.message);
     // Keine WM-Dekorationen (Motif WM Hints: flags=2 → nur Dekorationen, decorations=0)
-    exec(`xprop -id ${wid} -f _MOTIF_WM_HINTS 32c -set _MOTIF_WM_HINTS "2, 0, 0, 0, 0"`, () => {});
+    execFile('xprop', ['-id', wid, '-f', '_MOTIF_WM_HINTS', '32c', '-set', '_MOTIF_WM_HINTS', '2, 0, 0, 0, 0'],
+      (e) => { if (e) log('xterm _MOTIF_WM_HINTS: ' + e.message); });
     // Fenstertyp Utility: kein Taskbar-Eintrag, kein normales Fenster-Management
-    exec(`xprop -id ${wid} -f _NET_WM_WINDOW_TYPE 32a -set _NET_WM_WINDOW_TYPE _NET_WM_WINDOW_TYPE_UTILITY`, () => {});
+    execFile('xprop', ['-id', wid, '-f', '_NET_WM_WINDOW_TYPE', '32a', '-set', '_NET_WM_WINDOW_TYPE', '_NET_WM_WINDOW_TYPE_UTILITY'],
+      (e) => { if (e) log('xterm _NET_WM_WINDOW_TYPE: ' + e.message); });
     // Keep Below + Taskleisten/Pager/Switcher überspringen — xterm bleibt hinter normalen Fenstern.
-    exec(`xprop -id ${wid} -f _NET_WM_STATE 32a -set _NET_WM_STATE "_NET_WM_STATE_SKIP_TASKBAR,_NET_WM_STATE_SKIP_PAGER,_KDE_NET_WM_STATE_SKIP_SWITCHER"`, () => {});
+    execFile('xprop', ['-id', wid, '-f', '_NET_WM_STATE', '32a', '-set', '_NET_WM_STATE', '_NET_WM_STATE_SKIP_TASKBAR,_NET_WM_STATE_SKIP_PAGER,_KDE_NET_WM_STATE_SKIP_SWITCHER'],
+      (e) => { if (e) log('xterm _NET_WM_STATE: ' + e.message); });
     // Position + Größe setzen, dann erst einblenden
-    exec(`xdotool windowmove ${wid} ${x} ${y} windowsize ${wid} ${w} ${h}`, () => {
-      exec(`xdotool windowmap ${wid}`, () => {
+    execFile('xdotool', ['windowmove', wid, String(x), String(y), 'windowsize', wid, String(w), String(h)], (e) => {
+      if (e) log('xterm windowmove/windowsize: ' + e.message);
+      execFile('xdotool', ['windowmap', wid], (err) => {
+        if (err) log('xterm windowmap: ' + err.message);
         applyPropsInFlight = false;
         raiseTerminal();                 // frisch gemappt → im Stacking nach oben (bleibt unter normalen Fenstern)
-        log(`xterm konfiguriert: WID ${wid} @ (${x},${y}) ${w}×${h}`);
+        if (!err && !e) log(`xterm konfiguriert: WID ${wid} @ (${x},${y}) ${w}×${h}`);
       });
     });
   });
@@ -844,7 +914,7 @@ function applyWindowProps(wid, x, y, w, h) {
 
 // Billiger Pfad: nur Position/Größe, ohne unmap/xprop/map — für laufende Resizes
 function moveTerminalWindow(wid, x, y, w, h) {
-  exec(`xdotool windowmove ${wid} ${x} ${y} windowsize ${wid} ${w} ${h}`,
+  execFile('xdotool', ['windowmove', wid, String(x), String(y), 'windowsize', wid, String(w), String(h)],
     (e) => { if (e) log('moveTerminalWindow: ' + e.message); });
 }
 
@@ -892,7 +962,7 @@ function spawnTerminal() {
   termProc.on('exit', (code) => {
     if (gen !== termGen) return;
     termProc = null; termWid = null;
-    try { fs.unlinkSync(XTERM_PID); } catch {}
+    removeXtermPidfile();
 
     const aliveMs = Date.now() - termSpawnTs;
     if (aliveMs < 2000) termRestartAttempts++;   // Sofort-Absturz = Fehlstart
@@ -911,11 +981,12 @@ function spawnTerminal() {
 
   // --sync: blockiert bis das xterm-Fenster erscheint → sofort unmap bevor User es sieht.
   // timeout, damit ein nie erscheinendes Fenster den Handler nicht ewig hängen lässt.
-  exec(`xdotool search --sync --pid ${termProc.pid} 2>/dev/null | tail -1`,
+  execFile('xdotool', ['search', '--sync', '--pid', String(termProc.pid)],
     { timeout: 6000, killSignal: 'SIGKILL' }, (err, out) => {
     if (gen !== termGen || !termProc) return;
-    const wid = (out || '').trim();
-    if (wid) {
+    const wid = (out || '').trim().split(/\r?\n/).pop();
+    if (/^\d+$/.test(wid)) {
+      if (err) log('xterm WID-Suche: ' + err.message);
       termWid = wid;
       termRestartAttempts = 0;   // Fenster kam hoch → Fehlerzähler zurücksetzen
       const g = termGeom || { x, y, w, h };
@@ -926,13 +997,13 @@ function spawnTerminal() {
   });
 }
 
-ipcMain.on('terminal-spawn', (event, geom) => {
+onIpc('terminal-spawn', (event, geom) => {
   termGeom = toScreenGeom(geom);
   termRestartAttempts = 0;
   spawnTerminal();
 });
 
-ipcMain.on('terminal-geometry', (event, geom) => {
+onIpc('terminal-geometry', (event, geom) => {
   termGeom = toScreenGeom(geom);
   clearTimeout(geomDebounceTimer);
   geomDebounceTimer = setTimeout(() => {
@@ -942,24 +1013,24 @@ ipcMain.on('terminal-geometry', (event, geom) => {
 
 // Renderer feuert das pro Klick aufs Dashboard — gebündelt + gedrosselt raisen,
 // sonst flackert der xterm bei jedem Klick.
-ipcMain.on('terminal-raise', () => { raiseTerminalSoon(); });
+onIpc('terminal-raise', () => { raiseTerminalSoon(); });
 
-ipcMain.on('terminal-restart', () => {
+onIpc('terminal-restart', () => {
   log('Terminal: manueller Neustart');
   termRestartAttempts = 0;
   spawnTerminal();
 });
 
-ipcMain.on('terminal-clear', () => {
+onIpc('terminal-clear', () => {
   if (!termWid) return;
   // --window muss VOR der Tastenfolge stehen, sonst deutet xdotool "--window"
   // als Key und schlägt fehl. Ctrl+L an das xterm senden.
-  exec(`xdotool key --window ${termWid} --clearmodifiers ctrl+l`,
+  execFile('xdotool', ['key', '--window', termWid, '--clearmodifiers', 'ctrl+l'],
     (e) => { if (e) log('terminal-clear: ' + e.message); });
 });
 
 // Eingabeleiste: Text per xdotool ins xterm tippen + Enter (execFile, keine Shell-Interpolation)
-ipcMain.on('terminal-send', (_event, text) => {
+onIpc('terminal-send', (_event, text) => {
   if (!termWid || typeof text !== 'string') return;
   const line = text.replace(/[\r\n]+/g, ' ').slice(0, 2000);
   const press = () => execFile('xdotool', ['key', '--window', String(termWid), '--clearmodifiers', 'Return'],
@@ -971,20 +1042,22 @@ ipcMain.on('terminal-send', (_event, text) => {
 
 // xterm für die Dauer eines Overlays (Ctrl+K-Palette) aus-/einblenden, damit er
 // die zentrierte Suche nicht überdeckt.
-ipcMain.on('terminal-visible', (_event, visible) => {
+onIpc('terminal-visible', (_event, visible) => {
   if (!termWid) return;
   if (visible) {
-    exec(`xdotool windowmap ${termWid}`, () => {
+    execFile('xdotool', ['windowmap', termWid], (e) => {
+      if (e) log('terminal-visible windowmap: ' + e.message);
+      if (!termWid) return;
       if (termGeom) moveTerminalWindow(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
       raiseTerminal();
     });
   } else {
-    exec(`xdotool windowunmap ${termWid}`, () => {});
+    execFile('xdotool', ['windowunmap', termWid], (e) => { if (e) log('terminal-visible windowunmap: ' + e.message); });
   }
 });
 
 // Crash-Glitch: xterm hart versetzen (dx/dy in px relativ zur Soll-Position); 0,0 = zurück
-ipcMain.on('terminal-offset', (_event, dx, dy) => {
+onIpc('terminal-offset', (_event, dx, dy) => {
   if (!termWid || !termGeom || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
   const x = Math.round(termGeom.x + Math.max(-200, Math.min(200, dx)));
   const y = Math.round(termGeom.y + Math.max(-60, Math.min(60, dy)));
@@ -1015,6 +1088,7 @@ function tryLaunch(candidates, i) {
   try {
     child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
   } catch (err) {
+    if (err.code !== 'ENOENT') log(`launch-app: ${cmd} Fehler: ${err.message}`);
     return tryLaunch(candidates, i + 1);
   }
   child.on('error', (err) => {
@@ -1031,7 +1105,7 @@ function tryLaunch(candidates, i) {
   child.unref();
 }
 
-ipcMain.on('launch-app', (_event, key) => {
+onIpc('launch-app', (_event, key) => {
   if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(LAUNCH_CANDIDATES, key)) {
     log(`launch-app: unbekannter Key "${key}"`);
     return;
@@ -1076,13 +1150,15 @@ function scanApps() {
   const byId = new Map();
   for (const dir of DESKTOP_DIRS) {
     let files;
-    try { files = fs.readdirSync(dir); } catch { continue; }
+    try { files = fs.readdirSync(dir); }
+    catch (e) { if (e.code !== 'ENOENT') log(`App-Verzeichnis ${dir}: ${e.message}`); continue; }
     for (const f of files) {
       if (!f.endsWith('.desktop')) continue;
       const id = f.slice(0, -8);
       if (byId.has(id)) continue;
       let text;
-      try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { continue; }
+      try { text = fs.readFileSync(path.join(dir, f), 'utf8'); }
+      catch (e) { if (e.code !== 'ENOENT') log(`Desktop-Datei ${f}: ${e.message}`); continue; }
       const e = parseDesktopEntry(text);
       if (!e.Name || !e.Exec) continue;
       if (e.Type && e.Type !== 'Application') continue;
@@ -1099,12 +1175,12 @@ function scanApps() {
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
-ipcMain.handle('list-apps', () => {
+handleIpc('list-apps', () => {
   if (!appCache) { appCache = scanApps(); log(`list-apps: ${appCache.length} Einträge gescannt`); }
   return appCache.map(({ id, name, terminal }) => ({ id, name, terminal }));
 });
 
-ipcMain.on('launch-desktop', (_event, id) => {
+onIpc('launch-desktop', (_event, id) => {
   if (typeof id !== 'string') return;
   if (!appCache) appCache = scanApps();
   const entry = appCache.find((a) => a.id === id);
@@ -1127,7 +1203,7 @@ ipcMain.on('launch-desktop', (_event, id) => {
   // gio übernimmt Field-Codes + DBus-Aktivierung sauber; ENOENT → Exec direkt.
   let child;
   try { child = spawn('gio', ['launch', entry.file], { detached: true, stdio: 'ignore' }); }
-  catch { return viaExec(); }
+  catch (e) { if (e.code !== 'ENOENT') log(`launch-desktop: gio: ${e.message}`); return viaExec(); }
   let fellBack = false;
   child.on('error', (err) => {
     if (fellBack) return;
@@ -1139,12 +1215,13 @@ ipcMain.on('launch-desktop', (_event, id) => {
   child.unref();
 });
 
-const GLITCH_MODE = path.join(os.tmpdir(), 'sys-dashboard-glitch-mode');
+const GLITCH_MODE = path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'sys-dashboard-glitch-mode');
 // `kill -USR2 <pid>` (or bin/glitch) triggers the idle glitch right now, for testing
 process.on('SIGUSR2', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     let fn = '__glitch';
-    try { fn = fs.readFileSync(GLITCH_MODE, 'utf8').trim() === 'crash' ? '__crash' : '__glitch'; fs.unlinkSync(GLITCH_MODE); } catch {}
+    try { fn = fs.readFileSync(GLITCH_MODE, 'utf8').trim() === 'crash' ? '__crash' : '__glitch'; fs.unlinkSync(GLITCH_MODE); }
+    catch (e) { if (e.code !== 'ENOENT') log('glitch-Modus lesen/entfernen: ' + e.message); }
     mainWindow.webContents.executeJavaScript(`window.${fn} && window.${fn}()`).catch((e) => log(`glitch: ${e.message}`));
   }
 });
