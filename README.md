@@ -1,8 +1,41 @@
 # SASSY·DASH
 
-Persönliches Electron-System-Dashboard (Vollbild, läuft im Hintergrund, externes xterm als Terminal-Slot).
+Persönliches System-Dashboard. Zwei Varianten:
 
-## Installation (Fedora / Debian / Arch, KDE Plasma empfohlen)
+- **Plasmoid** (`plasmoid/`, neu, Prototyp): natives Plasma-6-Desktop-Widget mit eingebettetem Terminal. Kein Electron, keine KWin-Regeln, kein xterm-Overlay.
+- **Electron** (`src/`, bisher): Vollbild-Fenster im Hintergrund, externes xterm als Terminal-Slot.
+
+## Plasmoid (empfohlen auf KDE Plasma 6)
+
+**Voraussetzungen:** KDE Plasma **6** (Arch, Fedora KDE, Debian 13+). Plasma 5 (Debian 12, Kubuntu 22.04) wird nicht unterstützt.
+
+| Distro | Pakete (installiert `install.sh` automatisch) |
+|---|---|
+| Arch | `qmltermwidget kquickcharts libksysguard ksystemstats plasma5support procps-ng` |
+| Fedora | `qmltermwidget kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng` (Namen ungeprüft) |
+| Debian 13 | `qml6-module-org-kde-quickcharts qml6-module-org-kde-ksysguard ksystemstats qml6-module-org-kde-plasma-plasma5support procps`, **ohne Terminal**: qmltermwidget (Qt6) ist dort nicht paketiert |
+
+```bash
+git clone https://github.com/nxtsuj2005/sys-dashboard
+cd sys-dashboard
+./plasmoid/install.sh
+```
+
+Danach: Rechtsklick auf den Desktop → „Miniprogramme hinzufügen…“ → **SASSY·DASH** auf den Desktop ziehen und auf Bildschirmgröße aufziehen. Das Terminal-Farbschema greift erst nach dem nächsten Login.
+
+Update:
+```bash
+git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-plasmashell
+```
+
+Gut zu wissen:
+- Werte kommen aus `ksystemstats` (gleiche Quelle wie Plasmas Systemmonitor). Gerendert wird einmal pro Sekunde in einem gemeinsamen Takt, und wenn ein Fenster das Widget verdeckt, zeichnet Plasma gar nicht.
+- Terminal: Shell = fish → `$SHELL` → bash (überschreibbar über den Config-Key `shell`). Kopieren/Einfügen mit Ctrl+Shift+C/V, die Eingabeleiste schickt Zeilen direkt an die Shell.
+- `install.sh` legt `~/.config/plasma-workspace/env/sassydash.sh` an (setzt `QML_IMPORT_PATH` auf `~/.local/share/sassydash/qml`, nur für das Terminal-Farbschema). Zum Entfernen: `kpackagetool6 -t Plasma/Applet -r org.nxtsuj.sassydash`, dann diese Datei und `~/.local/share/sassydash` löschen.
+- Plasma ändert zwischen 6.x-Versionen gelegentlich QML-APIs. Auf Arch merkst du das zuerst.
+- Fehlt noch gegenüber Electron: Wetter, RSS, Blockgeräte/Disk-I/O, Shortcuts, App-Suche (Ctrl+K), Boot-/Glitch-Effekte.
+
+## Electron: Installation (Fedora / Debian / Arch, KDE Plasma empfohlen)
 
 ```bash
 git clone https://github.com/nxtsuj2005/sys-dashboard
