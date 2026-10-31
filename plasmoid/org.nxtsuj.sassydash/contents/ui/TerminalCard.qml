@@ -104,7 +104,7 @@ Rectangle {
                     respawn.restart();
                 });
             }
-            onStatusChanged: if (status === Loader.Error) console.warn("sassydash: QMLTermWidget not available — install qmltermwidget")
+            onStatusChanged: if (status === Loader.Error) console.warn("sassydash: QMLTermWidget (Qt6) not available — rerun plasmoid/install.sh")
         }
         Text {
             visible: loader.status === Loader.Error || card.stopped
@@ -116,7 +116,7 @@ Rectangle {
             color: Theme.muted
             font { family: Theme.mono; pixelSize: 11 }
             text: loader.status === Loader.Error
-                ? "Terminal-Modul fehlt — Arch: sudo pacman -S qmltermwidget"
+                ? "Terminal-Modul fehlt (QMLTermWidget für Qt6) — ./plasmoid/install.sh erneut ausführen, danach neu einloggen"
                 : "Shell " + card.shell + " beendet sich sofort wieder — „Neu“ zum erneuten Versuch"
         }
 

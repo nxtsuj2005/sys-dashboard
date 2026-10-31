@@ -12,8 +12,8 @@ Persönliches System-Dashboard. Zwei Varianten:
 | Distro | Pakete (installiert `install.sh` automatisch) |
 |---|---|
 | Arch | `qmltermwidget kquickcharts libksysguard ksystemstats plasma5support procps-ng` |
-| Fedora | `qmltermwidget kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng` (Namen ungeprüft) |
-| Debian 13 | `qml6-module-org-kde-quickcharts qml6-module-org-kde-ksysguard ksystemstats qml6-module-org-kde-plasma-plasma5support procps`, **ohne Terminal**: qmltermwidget (Qt6) ist dort nicht paketiert |
+| Fedora | `kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng` + Build-Tools `qt6-qtbase-devel qt6-qtdeclarative-devel gcc-c++ make` (Fedoras `qmltermwidget` ist nur Qt5, das Terminal-Modul wird selbst gebaut, ~1 Min) |
+| Debian 13 | `qml6-module-org-kde-quickcharts qml6-module-org-kde-ksysguard ksystemstats libplasma5support6 procps` + Build-Tools `qt6-base-dev qt6-declarative-dev qmake6 g++ make` (Terminal-Modul wird selbst gebaut) |
 
 ```bash
 git clone https://github.com/nxtsuj2005/sys-dashboard
@@ -32,7 +32,8 @@ Gut zu wissen:
 - Es ist ein Desktop-Layout (Containment), kein Widget: Desktop-Icons und andere Widgets auf diesem Bildschirm sind weg, solange es aktiv ist. Bei mehreren Monitoren pro Bildschirm wählbar.
 - Werte kommen aus `ksystemstats` (gleiche Quelle wie Plasmas Systemmonitor). Gerendert wird einmal pro Sekunde in einem gemeinsamen Takt, und wenn ein Fenster das Widget verdeckt, zeichnet Plasma gar nicht.
 - Terminal: Shell = fish → `$SHELL` → bash (überschreibbar über den Config-Key `shell`). Kopieren/Einfügen mit Ctrl+Shift+C/V, die Eingabeleiste schickt Zeilen direkt an die Shell.
-- `install.sh` legt `~/.config/plasma-workspace/env/sassydash.sh` an (setzt `QML_IMPORT_PATH` auf `~/.local/share/sassydash/qml`, nur für das Terminal-Farbschema). Zum Entfernen: `kpackagetool6 -t Plasma/Applet -r org.nxtsuj.sassydash`, dann diese Datei und `~/.local/share/sassydash` löschen.
+- Terminal-Modul: Gibt es kein Qt6-`QMLTermWidget` im System (Fedora, Debian), baut `plasmoid/build-qmltermwidget.sh` einen festen Upstream-Commit nach `~/.local/share/sassydash/qml` (nur beim ersten Mal bzw. wenn sich der Commit ändert).
+- `install.sh` legt `~/.config/plasma-workspace/env/sassydash.sh` an (setzt `QML_IMPORT_PATH` auf `~/.local/share/sassydash/qml`, für Terminal-Modul und Farbschema). Zum Entfernen: `kpackagetool6 -t Plasma/Applet -r org.nxtsuj.sassydash`, dann diese Datei und `~/.local/share/sassydash` löschen.
 - Plasma ändert zwischen 6.x-Versionen gelegentlich QML-APIs. Auf Arch merkst du das zuerst.
 - Fehlt noch gegenüber Electron: Wetter, RSS, Blockgeräte/Disk-I/O, Shortcuts, App-Suche (Ctrl+K), Boot-/Glitch-Effekte.
 
