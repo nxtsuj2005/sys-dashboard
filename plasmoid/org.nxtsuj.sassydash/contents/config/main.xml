@@ -11,5 +11,9 @@
       <label>Shell for the embedded terminal; empty = fish, then $SHELL, then bash</label>
       <default></default>
     </entry>
+    <entry name="weatherLocation" type="String">
+      <label>Weather location for wttr.in; empty = auto (by public IP, follows the laptop)</label>
+      <default></default>
+    </entry>
   </group>
 </kcfg>
