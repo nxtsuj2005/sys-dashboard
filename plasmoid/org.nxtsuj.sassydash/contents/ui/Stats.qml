@@ -22,7 +22,7 @@ QtObject {
     property double tickAt: 0
     signal frame()
     readonly property Timer glide: Timer {
-        interval: Math.max(16, Math.round(1000 / Math.max(1, stats.glideFps)))
+        interval: Math.min(stats.glideMs / 3, Math.max(16, Math.round(1000 / Math.max(1, stats.glideFps))))   // >= 3 steps per glide
         repeat: true
         running: stats.glideFps > 0 && stats.frac < 1
         onTriggered: {
@@ -70,6 +70,9 @@ QtObject {
         repeat: true
         triggeredOnStart: true
         onTriggered: {
+            // Restart the glide first, so Glides fed by the values below see frames coming.
+            stats.tickAt = Date.now();
+            stats.frac = stats.glideFps > 0 ? 0 : 1;
             stats.cpu = stats.num(stats.sCpu);
             stats.ramPct = stats.num(stats.sRamPct);
             stats.diskPct = stats.num(stats.sDiskPct);
@@ -87,8 +90,6 @@ QtObject {
             stats.upText = stats.fmt(stats.sUp);
             stats.host = String(stats.sHost.value || "");
             stats.ticks++;
-            stats.tickAt = Date.now();
-            stats.frac = stats.glideFps > 0 ? 0 : 1;
             stats.tick();
             stats.frame();
         }

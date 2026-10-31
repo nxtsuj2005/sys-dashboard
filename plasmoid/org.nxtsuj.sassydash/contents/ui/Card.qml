@@ -20,6 +20,7 @@ Rectangle {
     readonly property FxState fx: FxState { h: card.height }
     transform: [fx.shear, fx.shift]
     opacity: fx.opacity
+    enabled: !fx.hidden            // a hidden tile takes no clicks or keys
     FxCut { fx: card.fx }
 
     ColumnLayout {

@@ -16,6 +16,7 @@ Rectangle {
     readonly property FxState fx: FxState { h: bar.height }
     transform: [fx.shear, fx.shift]
     opacity: fx.opacity
+    enabled: !fx.hidden            // a hidden tile takes no clicks or keys
     FxCut { fx: bar.fx }
 
     Rectangle {   // 3 px accent edge on the left
