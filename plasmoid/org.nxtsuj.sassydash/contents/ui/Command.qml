@@ -15,11 +15,23 @@ P5Support.DataSource {
     interval: every
     connectedSources: (every > 0 || pending) && command !== "" ? [command] : []
 
+    // Results are held until the next Stats tick so every card repaints in the
+    // same once-a-second frame instead of whenever its process happens to exit.
+    property var queued: null
     onNewData: (source, data) => {
         const code = data["exit code"] ?? -1;
         if (code !== 0 && data["stderr"]) console.warn("sassydash:", source, "→", code, data["stderr"]);
         if (every <= 0) pending = false;
-        finished(data["stdout"] ?? "", code);
+        queued = { out: data["stdout"] ?? "", code };
+    }
+    readonly property Connections flush: Connections {
+        target: Stats
+        enabled: src.queued !== null
+        function onTick() {
+            const q = src.queued;
+            src.queued = null;
+            src.finished(q.out, q.code);
+        }
     }
     function run() { if (command !== "") pending = true; }
 }
