@@ -1,17 +1,17 @@
 import QtQuick
-import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 
-PlasmoidItem {
+// A desktop layout (containment), not a widget: Plasma sizes it to the screen,
+// so there is nothing to drag. Panels are kept clear via availableScreenRect.
+ContainmentItem {
     id: root
-    preferredRepresentation: fullRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
-    fullRepresentation: Dashboard {
-        Layout.minimumWidth: 960
-        Layout.minimumHeight: 600
-        Layout.preferredWidth: 1600
-        Layout.preferredHeight: 900
+    Dashboard {
+        x: root.availableScreenRect.x
+        y: root.availableScreenRect.y
+        width: root.availableScreenRect.width > 0 ? root.availableScreenRect.width : root.width
+        height: root.availableScreenRect.height > 0 ? root.availableScreenRect.height : root.height
     }
 }

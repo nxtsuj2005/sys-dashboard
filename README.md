@@ -2,7 +2,7 @@
 
 Persönliches System-Dashboard. Zwei Varianten:
 
-- **Plasmoid** (`plasmoid/`, neu, Prototyp): natives Plasma-6-Desktop-Widget mit eingebettetem Terminal. Kein Electron, keine KWin-Regeln, kein xterm-Overlay.
+- **Plasmoid** (`plasmoid/`, neu, Prototyp): natives Plasma-6-Desktop-Layout mit eingebettetem Terminal. Kein Electron, keine KWin-Regeln, kein xterm-Overlay.
 - **Electron** (`src/`, bisher): Vollbild-Fenster im Hintergrund, externes xterm als Terminal-Slot.
 
 ## Plasmoid (empfohlen auf KDE Plasma 6)
@@ -21,7 +21,7 @@ cd sys-dashboard
 ./plasmoid/install.sh
 ```
 
-Danach: Rechtsklick auf den Desktop → „Miniprogramme hinzufügen…“ → **SASSY·DASH** auf den Desktop ziehen und auf Bildschirmgröße aufziehen. Das Terminal-Farbschema greift erst nach dem nächsten Login.
+Danach: Rechtsklick auf den Desktop → „Desktop und Hintergrundbild einrichten…“ → **Layout: SASSY·DASH** → Anwenden. Das Dashboard füllt dann automatisch den Bildschirm (ohne Panel-Fläche), nichts zu ziehen. Zurück geht's genauso über Rechtsklick → „SASSY·DASH einrichten…“ → Layout: Ordneransicht. Das Terminal-Farbschema greift erst nach dem nächsten Login.
 
 Update:
 ```bash
@@ -29,6 +29,7 @@ git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-p
 ```
 
 Gut zu wissen:
+- Es ist ein Desktop-Layout (Containment), kein Widget: Desktop-Icons und andere Widgets auf diesem Bildschirm sind weg, solange es aktiv ist. Bei mehreren Monitoren pro Bildschirm wählbar.
 - Werte kommen aus `ksystemstats` (gleiche Quelle wie Plasmas Systemmonitor). Gerendert wird einmal pro Sekunde in einem gemeinsamen Takt, und wenn ein Fenster das Widget verdeckt, zeichnet Plasma gar nicht.
 - Terminal: Shell = fish → `$SHELL` → bash (überschreibbar über den Config-Key `shell`). Kopieren/Einfügen mit Ctrl+Shift+C/V, die Eingabeleiste schickt Zeilen direkt an die Shell.
 - `install.sh` legt `~/.config/plasma-workspace/env/sassydash.sh` an (setzt `QML_IMPORT_PATH` auf `~/.local/share/sassydash/qml`, nur für das Terminal-Farbschema). Zum Entfernen: `kpackagetool6 -t Plasma/Applet -r org.nxtsuj.sassydash`, dann diese Datei und `~/.local/share/sassydash` löschen.

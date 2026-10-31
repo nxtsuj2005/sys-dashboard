@@ -62,5 +62,5 @@ else
   warn "QMLTermWidget-Modul nicht gefunden — Terminal-Karte zeigt einen Hinweis, Farbschema übersprungen."
 fi
 
-say "Fertig. Rechtsklick auf den Desktop → „Miniprogramme hinzufügen…“ → SASSY·DASH, dann auf Bildschirmgröße ziehen."
+say "Fertig. Rechtsklick auf den Desktop → „Desktop und Hintergrundbild einrichten…“ → Layout: SASSY·DASH → Anwenden."
 say "Farbschema greift nach dem nächsten Login; Updates: git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-plasmashell"

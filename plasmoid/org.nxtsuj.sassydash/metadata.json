@@ -5,15 +5,16 @@
                 "Name": "nxtsuj2005"
             }
         ],
-        "Category": "System Information",
-        "Description": "Personal system dashboard for the Plasma desktop",
+        "Category": "Containments",
+        "Description": "Personal system dashboard as a Plasma desktop layout",
         "Icon": "utilities-system-monitor",
         "Id": "org.nxtsuj.sassydash",
         "License": "MIT",
         "Name": "SASSY·DASH",
-        "Version": "0.1.0",
+        "Version": "0.2.0",
         "Website": "https://github.com/nxtsuj2005/sys-dashboard"
     },
     "KPackageStructure": "Plasma/Applet",
-    "X-Plasma-API-Minimum-Version": "6.0"
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-ContainmentType": "Desktop"
 }
