@@ -24,6 +24,7 @@ QMLTermWidget {
 
     function send(text) { session.sendText(text); }
     function clear() { session.clearScreen(); }
+    function focusTerm() { term.forceActiveFocus(); }
 
     TapHandler { onTapped: term.forceActiveFocus() }
     Shortcut { sequence: "Ctrl+Shift+C"; enabled: term.activeFocus; onActivated: term.copyClipboard() }

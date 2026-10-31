@@ -25,36 +25,84 @@ Card {
             Layout.fillWidth: true
             Layout.fillHeight: true
             history: 120
+            grid: true
             values: [Stats.cpu, Stats.ramPct]
             colors: [Theme.accent, Theme.green]
         }
 
-        // One thin bar per core; scales to many cores without grouping.
-        Row {
+        // Electron #core-bars: 4-column grid, at most 8 bars; above 8 cores each
+        // bar averages a contiguous group ("C0–3"). Values move once per tick, no easing.
+        GridLayout {
             id: bars
             Layout.fillWidth: true
-            Layout.preferredHeight: 34
-            readonly property int n: Stats.cores
-            spacing: n > 16 ? 1 : 3
+            Layout.preferredHeight: 48
+            Layout.topMargin: -2
+            columns: 4
+            columnSpacing: 12
+            rowSpacing: 6
+            readonly property int total: Stats.cores
+            readonly property int n: Math.min(total, 8)
+            Rectangle { Layout.columnSpan: 4; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
             Repeater {
                 model: bars.n
-                delegate: Item {
+                delegate: ColumnLayout {
                     id: core
                     required property int index
-                    width: (bars.width - bars.spacing * (bars.n - 1)) / bars.n
-                    height: bars.height
-                    Sensors.Sensor { id: s; sensorId: "cpu/cpu" + core.index + "/usage" }
+                    readonly property int a: Math.floor(index * bars.total / bars.n)
+                    readonly property int b: Math.floor((index + 1) * bars.total / bars.n)
+                    readonly property bool grouped: bars.total > bars.n
                     property real pct
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 3
+                    Instantiator {
+                        id: sensors
+                        model: core.b - core.a
+                        delegate: Sensors.Sensor { required property int index; sensorId: "cpu/cpu" + (core.a + index) + "/usage" }
+                    }
                     Connections {
                         target: Stats
-                        function onTick() { core.pct = Math.max(0, Math.min(100, Number(s.value) || 0)); }
+                        function onTick() {
+                            let sum = 0;
+                            for (let i = 0; i < sensors.count; i++) sum += Number(sensors.objectAt(i)?.value) || 0;
+                            core.pct = Math.max(0, Math.min(100, sensors.count ? sum / sensors.count : 0));
+                        }
                     }
-                    Rectangle { anchors.fill: parent; color: Theme.panel; radius: 1 }
-                    Rectangle {
-                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                        height: parent.height * core.pct / 100
-                        radius: 1
-                        color: core.pct >= 90 ? Theme.red : core.pct >= 70 ? Theme.orange : Theme.accent
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: !core.grouped ? "Core " + core.a : core.b - core.a > 1 ? "C" + core.a + "–" + (core.b - 1) : "C" + core.a
+                            color: Theme.muted
+                            font { family: Theme.mono; pixelSize: 9 }
+                        }
+                        Text { text: Math.round(core.pct) + "%"; color: Theme.muted; font { family: Theme.mono; pixelSize: 9 } }
+                    }
+                    Rectangle {   // track with a faint static hatch, like .bar-track
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 5
+                        color: Theme.panel
+                        border.color: Theme.border
+                        clip: true
+                        Row {
+                            x: -height; spacing: 5
+                            Repeater {
+                                model: Math.ceil(parent.parent.width / 7) + 2
+                                Rectangle { width: 2; height: 9; y: -2; rotation: 45; color: Qt.rgba(0.6, 0.65, 0.7, 0.07) }
+                            }
+                        }
+                        Rectangle {
+                            id: fill
+                            height: parent.height
+                            width: parent.width * core.pct / 100
+                            readonly property color c: core.pct > 80 ? Theme.red : core.pct > 60 ? Theme.orange : Theme.accent
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0; color: Qt.tint(Theme.bg, Qt.alpha(fill.c, 0.6)) }
+                                GradientStop { position: 1; color: fill.c }
+                            }
+                        }
                     }
                 }
             }

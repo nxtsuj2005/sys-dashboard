@@ -7,7 +7,8 @@ Rectangle {
     property string title: ""
     property alias headerExtras: extras.data
     default property alias body: content.data
-    property int padding: 11
+    property int padding: 10
+    property int titleGap: 10
 
     color: Theme.card
     border.color: hover.hovered ? Theme.accentDim : Theme.border
@@ -20,7 +21,7 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: card.padding
-        spacing: 8
+        spacing: card.titleGap
 
         RowLayout {
             visible: card.title !== ""
@@ -29,7 +30,7 @@ Rectangle {
             Text {
                 text: card.title
                 color: Theme.text2
-                font { family: Theme.mono; pixelSize: 10; weight: Font.DemiBold; letterSpacing: 1.6; capitalization: Font.AllUppercase }
+                font { family: Theme.mono; pixelSize: 10; weight: Font.DemiBold; letterSpacing: 1; capitalization: Font.AllUppercase }
             }
             Item { Layout.fillWidth: true }
             Row { id: extras; spacing: 10 }

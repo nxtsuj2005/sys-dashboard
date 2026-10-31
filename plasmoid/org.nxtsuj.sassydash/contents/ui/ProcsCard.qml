@@ -11,7 +11,7 @@ Card {
         const m = /^([\d.]+)([kmgt]?)$/i.exec(raw || "");
         if (!m) return raw || "";
         const mib = parseFloat(m[1]) * { "": 1 / 1024, k: 1 / 1024, m: 1, g: 1024, t: 1048576 }[m[2].toLowerCase()];
-        return mib >= 1024 ? (mib / 1024).toFixed(1) + " GiB" : Math.round(mib) + " MiB";
+        return mib >= 1024 ? (mib / 1024).toFixed(1) + "G" : Math.round(mib) + "M";
     }
 
     // Second top iteration = CPU share over the last 0.6 s (the first one is since boot).
@@ -27,41 +27,56 @@ Card {
         }
     }
 
+    headerExtras: Row {
+        spacing: 5
+        Rectangle { width: 7; height: 2; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
+        Text { text: "CPU"; color: Theme.muted; font { family: Theme.mono; pixelSize: 9; letterSpacing: 1 } }
+    }
+
+    // Electron .tp-row: name + "cpu% memM" on one line, a 3 px bar under it scaled
+    // to the busiest process (min 2 %).
     ListView {
+        id: list
         anchors.fill: parent
         clip: true
-        spacing: 4
+        spacing: 6
         interactive: false
         model: card.procs
-        delegate: Item {
+        readonly property real maxCpu: Math.max(1, card.procs.length ? card.procs[0].cpu : 1)
+        delegate: Column {
             id: row
             required property var modelData
             width: ListView.view.width
-            height: 22
-            Rectangle {
-                anchors { left: parent.left; bottom: parent.bottom }
-                height: 2
-                width: parent.width * Math.min(100, row.modelData.cpu) / 100
-                color: Theme.accent
-                opacity: 0.7
-            }
+            spacing: 3
             RowLayout {
-                anchors { fill: parent; bottomMargin: 3 }
+                width: parent.width
                 spacing: 8
                 Text {
                     Layout.fillWidth: true
                     text: row.modelData.name
                     elide: Text.ElideRight
                     color: Theme.text
-                    font { family: Theme.mono; pixelSize: 11 }
+                    font { family: Theme.mono; pixelSize: 10 }
                 }
-                Text { text: row.modelData.res; color: Theme.muted; font { family: Theme.mono; pixelSize: 10 } }
                 Text {
-                    Layout.preferredWidth: 46
-                    horizontalAlignment: Text.AlignRight
-                    text: row.modelData.cpu.toFixed(0) + "%"
-                    color: Theme.level(row.modelData.cpu, 50, 90)
-                    font { family: Theme.mono; pixelSize: 11 }
+                    textFormat: Text.StyledText
+                    text: row.modelData.cpu.toFixed(0) + "%&nbsp;<font size=\"1\" color=\"" + Theme.muted + "\">" + row.modelData.res + "</font>"
+                    color: Theme.accent
+                    font { family: Theme.mono; pixelSize: 10 }
+                }
+            }
+            Rectangle {
+                width: parent.width
+                height: 3
+                color: Theme.panel
+                Rectangle {
+                    height: parent.height
+                    width: parent.width * Math.max(0.02, Math.min(1, row.modelData.cpu / list.maxCpu))
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: Qt.tint(Theme.bg, Qt.alpha(Theme.accent, 0.55)) }
+                        GradientStop { position: 1; color: Theme.accent }
+                    }
                 }
             }
         }

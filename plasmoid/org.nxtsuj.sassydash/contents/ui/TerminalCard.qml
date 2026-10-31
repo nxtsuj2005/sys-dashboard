@@ -25,6 +25,16 @@ Rectangle {
     }
 
     property bool stopped: false
+    // Lines typed in the input bar, newest last (Electron keeps 100).
+    property var history: []
+    property int histPos: -1
+
+    // Entry point for other cards (shortcut htop, event → systemctl status).
+    function run(command) {
+        if (!loader.item || !command) return;
+        loader.item.send(command + "\r");
+        loader.item.focusTerm();
+    }
     // Initial properties so the shell is known before Terminal.qml starts it.
     function restart() {
         loader.source = "";
@@ -62,17 +72,21 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
+            Layout.preferredHeight: 31
             color: "#151f2c"
             RowLayout {
                 anchors { fill: parent; leftMargin: 12; rightMargin: 6 }
                 spacing: 8
                 Text {
-                    text: card.shell ? card.shell.split("/").pop() + " — " + card.shell : "Terminal"
+                    text: card.shell ? card.shell.split("/").pop() + " — " + card.shell + " (nativ)" : "Terminal"
                     color: "#a9cfff"
                     font { family: Theme.mono; pixelSize: 11 }
                 }
-                Item { Layout.fillWidth: true }
+                Text {
+                    text: "Ctrl K · Apps"
+                    color: "#8eabc9"
+                    font { family: Theme.mono; pixelSize: 9 }
+                }
                 component Act: Text {
                     signal clicked()
                     color: area.containsMouse ? "#e1eeff" : "#b1c5de"
@@ -81,6 +95,7 @@ Rectangle {
                 }
                 Act { text: "Leeren"; onClicked: if (loader.item) loader.item.clear() }
                 Act { text: "Neu"; onClicked: { card.quickExits = 0; card.restart(); } }
+                Item { Layout.fillWidth: true }
             }
             Rectangle { anchors { left: parent.left; right: parent.right; bottom: parent.bottom } height: 1; color: "#2b3b4f" }
         }
@@ -141,9 +156,23 @@ Rectangle {
                     font { family: Theme.mono; pixelSize: 11 }
                     background: null
                     onAccepted: send()
+                    Keys.onUpPressed: browse(-1)
+                    Keys.onDownPressed: browse(1)
+                    function browse(step) {
+                        const h = card.history;
+                        if (!h.length) return;
+                        let p = card.histPos < 0 ? h.length : card.histPos;
+                        p = Math.max(0, Math.min(h.length, p + step));
+                        card.histPos = p === h.length ? -1 : p;
+                        text = p === h.length ? "" : h[p];
+                    }
                     function send() {
                         if (!loader.item) return;
-                        loader.item.send(text.replace(/[\r\n]+/g, " ") + "\r");
+                        const line = text.replace(/[\r\n]+/g, " ");
+                        loader.item.send(line + "\r");
+                        if (line.trim() && card.history[card.history.length - 1] !== line)
+                            card.history = card.history.concat([line]).slice(-100);
+                        card.histPos = -1;
                         text = "";
                     }
                 }

@@ -1,14 +1,17 @@
 singleton Theme 1.0 Theme.qml
 singleton Stats 1.0 Stats.qml
+AppSearch 1.0 AppSearch.qml
 Card 1.0 Card.qml
 Command 1.0 Command.qml
 Dashboard 1.0 Dashboard.qml
+EventsCard 1.0 EventsCard.qml
 KpiCard 1.0 KpiCard.qml
-NetCard 1.0 NetCard.qml
 NotesCard 1.0 NotesCard.qml
 ProcsCard 1.0 ProcsCard.qml
-ServicesCard 1.0 ServicesCard.qml
+ShortcutsCard 1.0 ShortcutsCard.qml
 Spark 1.0 Spark.qml
+StorageCard 1.0 StorageCard.qml
 SystemCard 1.0 SystemCard.qml
 TerminalCard 1.0 TerminalCard.qml
 TopBar 1.0 TopBar.qml
+WeatherCard 1.0 WeatherCard.qml

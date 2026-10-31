@@ -19,6 +19,8 @@ QtObject {
     property real temp
     property real load1
     property int cores: 1
+    property real ramUsed
+    property real ramTotal
     property string ramUsedText: "—"
     property string ramTotalText: "—"
     property string diskFreeText: "—"
@@ -56,6 +58,8 @@ QtObject {
             stats.temp = stats.num(stats.sTemp);
             stats.load1 = stats.num(stats.sLoad1);
             stats.cores = Math.max(1, stats.num(stats.sCores));
+            stats.ramUsed = stats.num(stats.sRamUsed);
+            stats.ramTotal = stats.num(stats.sRamTotal);
             stats.ramUsedText = stats.fmt(stats.sRamUsed);
             stats.ramTotalText = stats.fmt(stats.sRamTotal);
             stats.diskFreeText = stats.fmt(stats.sDiskFree);

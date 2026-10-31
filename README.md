@@ -35,7 +35,9 @@ Gut zu wissen:
 - Terminal-Modul: Gibt es kein Qt6-`QMLTermWidget` im System (Fedora, Debian), baut `plasmoid/build-qmltermwidget.sh` einen festen Upstream-Commit nach `~/.local/share/sassydash/qml` (nur beim ersten Mal bzw. wenn sich der Commit ändert).
 - `install.sh` legt `~/.config/plasma-workspace/env/sassydash.sh` an (setzt `QML_IMPORT_PATH` auf `~/.local/share/sassydash/qml`, für Terminal-Modul und Farbschema). Zum Entfernen: `kpackagetool6 -t Plasma/Applet -r org.nxtsuj.sassydash`, dann diese Datei und `~/.local/share/sassydash` löschen.
 - Plasma ändert zwischen 6.x-Versionen gelegentlich QML-APIs. Auf Arch merkst du das zuerst.
-- Fehlt noch gegenüber Electron: Wetter, RSS, Blockgeräte/Disk-I/O, Shortcuts, App-Suche (Ctrl+K), Boot-/Glitch-Effekte.
+- Wetter folgt dem Laptop: ohne Einstellung ermittelt wttr.in den Ort über die öffentliche IP (bei VPN/Mobilfunk evtl. ungenau). Fester Ort: Config-Key `weatherLocation`, z. B. `kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc --group Containments --group <id> --group Configuration --group General --key weatherLocation "Schwäbisch Hall"`.
+- Ctrl+K (App-Suche) greift, solange der Desktop den Fokus hat (einmal draufklicken). Bewusst kein globales Kürzel.
+- Fehlt noch gegenüber Electron: Boot-Animation, Glitch-/Crash-Effekte (RSS ist auch in Electron ausgeblendet).
 
 ## Electron: Installation (Fedora / Debian / Arch, KDE Plasma empfohlen)
 

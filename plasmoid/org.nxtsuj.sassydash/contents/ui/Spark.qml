@@ -10,6 +10,7 @@ Charts.LineChart {
     property int history: 60
     property real maximum: 100               // <= 0 → automatic range
     property int every: 1                    // sample every n ticks
+    property bool grid: false                // faint dashed quarter lines (System-Graph)
 
     property var h0: new Array(history).fill(0)
     property var h1: new Array(history).fill(0)
@@ -22,6 +23,19 @@ Charts.LineChart {
     yRange { from: 0; to: chart.maximum; automatic: chart.maximum <= 0 }
     colorSource: Charts.ArraySource { array: chart.colors }
     valueSources: chart.values.length > 1 ? [line0, line1] : [line0]
+
+    Repeater {
+        model: chart.grid ? 3 : 0
+        Row {
+            required property int index
+            y: Math.round(chart.height * (index + 1) / 4)
+            spacing: 3
+            Repeater {
+                model: Math.ceil(chart.width / 6)
+                Rectangle { width: 3; height: 1; color: Qt.rgba(1, 1, 1, 0.06) }
+            }
+        }
+    }
 
     Connections {
         target: Stats
