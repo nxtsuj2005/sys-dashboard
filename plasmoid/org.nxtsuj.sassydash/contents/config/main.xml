@@ -19,5 +19,13 @@
       <label>Frames per second for graph/bar gliding after each update; 0 = snap (lightest)</label>
       <default>10</default>
     </entry>
+    <entry name="reducedMotion" type="Bool">
+      <label>No boot sequence, idle glitches or crash</label>
+      <default>false</default>
+    </entry>
+    <entry name="fxDebug" type="String">
+      <label>Effect preview: "glitch" = idle glitch every ~25 s, "crash" = crash 20 s after boot; empty = normal</label>
+      <default></default>
+    </entry>
   </group>
 </kcfg>

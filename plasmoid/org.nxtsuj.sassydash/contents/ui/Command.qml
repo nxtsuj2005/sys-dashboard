@@ -9,6 +9,7 @@ P5Support.DataSource {
     property string command: ""
     property int every: 0
     property bool pending: false
+    property bool immediate: false   // deliver right away instead of on the next tick (boot feed)
     signal finished(string stdout, int exitCode)
 
     engine: "executable"
@@ -22,6 +23,7 @@ P5Support.DataSource {
         const code = data["exit code"] ?? -1;
         if (code !== 0 && data["stderr"]) console.warn("sassydash:", source, "→", code, data["stderr"]);
         if (every <= 0) pending = false;
+        if (immediate) { finished(data["stdout"] ?? "", code); return; }
         queued = { out: data["stdout"] ?? "", code };
     }
     readonly property Connections flush: Connections {

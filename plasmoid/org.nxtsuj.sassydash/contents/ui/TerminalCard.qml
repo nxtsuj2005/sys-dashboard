@@ -10,6 +10,10 @@ Rectangle {
     border.color: "#507aae"
     radius: Theme.radius
     clip: true
+    readonly property FxState fx: FxState { h: card.height }
+    transform: [fx.shear, fx.shift]
+    opacity: fx.opacity
+    FxCut { fx: card.fx }
 
     property string shell: ""
     property int quickExits: 0

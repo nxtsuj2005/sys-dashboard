@@ -17,6 +17,7 @@ QtObject {
     readonly property color text2:   "#9aa7b4"
     readonly property color muted:   "#91a0b1"
     readonly property color termBg:  "#0a1018"
+    property color backdrop: bg      // what shows behind tiles (Fx sets the crash black)
     // panel tiles / buttons inside cards (weather tiles, event rows, shortcut buttons)
     readonly property color tile:       "#1b2533"
     readonly property color tileHover:  "#25384e"

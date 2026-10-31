@@ -22,17 +22,26 @@ Rectangle {
     signal runInTerminal(string command)
     onRunInTerminal: (command) => terminal.run(command)
 
+    Item {   // the whole dashboard, so it can tear as one (boot reveal, crash)
+        id: app
+        anchors.fill: parent
+        readonly property FxState fx: FxState { h: app.height }
+        transform: [app.fx.shear, app.fx.shift]
+        opacity: app.fx.opacity
+        FxCut { fx: app.fx }
+
     ColumnLayout {
         anchors { fill: parent; margins: dash.gap }
         spacing: dash.gap
 
-        TopBar { Layout.fillWidth: true; Layout.preferredHeight: dash.headerH; tall: dash.tall }
+        TopBar { id: topBar; Layout.fillWidth: true; Layout.preferredHeight: dash.headerH; tall: dash.tall }
 
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: dash.kpiH
             spacing: dash.gap
             KpiCard {
+                id: kpiCpu
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                 readonly property real pct: Stats.cpu
                 title: "CPU"
@@ -42,6 +51,7 @@ Rectangle {
                 trendValue: pct; back: 4; threshold: 5; hotAt: 80
             }
             KpiCard {
+                id: kpiRam
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                 readonly property real pct: Stats.ramPct
                 title: "RAM"
@@ -53,6 +63,7 @@ Rectangle {
                 trendValue: pct; back: 4; threshold: 4; hotAt: 85
             }
             KpiCard {
+                id: kpiDisk
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                 readonly property real pct: Stats.diskPct
                 title: "Speicher"
@@ -64,6 +75,7 @@ Rectangle {
                 trendValue: pct; back: 20; threshold: 1
             }
             KpiCard {
+                id: kpiNet
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 1
                 title: "Netzwerk"
                 value: "↓ " + Stats.downText
@@ -77,17 +89,19 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: dash.mainH
             spacing: dash.gap
-            SystemCard { Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 125 }
+            SystemCard { id: systemCard; Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 125 }
             ColumnLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 110
                 spacing: dash.gap
-                EventsCard { Layout.fillWidth: true; Layout.fillHeight: true }
+                EventsCard { id: eventsCard; Layout.fillWidth: true; Layout.fillHeight: true }
                 ShortcutsCard {
+                    id: shortcutsCard
                     Layout.fillWidth: true; Layout.preferredHeight: 62
                     onRunInTerminal: (command) => dash.runInTerminal(command)
                 }
             }
             WeatherCard {
+                id: weatherCard
                 Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 65
                 location: Plasmoid.configuration.weatherLocation
             }
@@ -103,11 +117,31 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: dash.bottomH
             spacing: dash.gap
-            StorageCard { Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 200 }
-            ProcsCard { Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 120 }
-            NotesCard { Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 80 }
+            StorageCard { id: storageCard; Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 200 }
+            ProcsCard { id: procsCard; Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 120 }
+            NotesCard { id: notesCard; Layout.fillWidth: true; Layout.fillHeight: true; Layout.preferredWidth: 80 }
         }
     }
+
+    }
+
+    Rectangle { id: crashBlack; anchors.fill: parent; z: 5; visible: false; color: "#04070b" }
+    BootScreen { id: bootScreen; anchors.fill: parent; z: 10 }
+    Fx {
+        id: effects
+        app: app
+        appFx: app.fx
+        boot: bootScreen
+        black: crashBlack
+        topBar: topBar
+        terminal: terminal
+        groups: [[kpiCpu, kpiRam, kpiDisk, kpiNet],
+                 [systemCard, eventsCard, shortcutsCard, weatherCard],
+                 [storageCard, procsCard, notesCard]]
+        reduced: Plasmoid.configuration.reducedMotion
+        debug: Plasmoid.configuration.fxDebug
+    }
+    Component.onCompleted: effects.startBoot(false)
 
     // Ctrl+K only while the desktop has focus (no global accelerator, by design).
     AppSearch { id: appSearch }

@@ -13,6 +13,10 @@ Rectangle {
     color: "#141c26"
     border.color: "#334253"
     radius: 3
+    readonly property FxState fx: FxState { h: bar.height }
+    transform: [fx.shear, fx.shift]
+    opacity: fx.opacity
+    FxCut { fx: bar.fx }
 
     Rectangle {   // 3 px accent edge on the left
         width: 3; height: parent.height; radius: 1

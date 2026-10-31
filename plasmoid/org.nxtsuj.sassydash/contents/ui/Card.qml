@@ -17,6 +17,10 @@ Rectangle {
     clip: true
 
     HoverHandler { id: hover }
+    readonly property FxState fx: FxState { h: card.height }
+    transform: [fx.shear, fx.shift]
+    opacity: fx.opacity
+    FxCut { fx: card.fx }
 
     ColumnLayout {
         anchors.fill: parent
