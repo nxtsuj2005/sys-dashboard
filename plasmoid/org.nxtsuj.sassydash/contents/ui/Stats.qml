@@ -11,6 +11,26 @@ QtObject {
     signal tick()
     property int ticks: 0
 
+    // Paced glide (Electron GLIDE_FPS): after each tick, `frac` runs 0 → 1 over
+    // glideMs at glideFps frames and `frame()` fires per step; then the scene rests
+    // until the next tick. Graphs and bars move on these frames only; glideFps 0 =
+    // snap once per tick. Frames cost a full repaint each, hence the short window.
+    property int glideFps: 10            // set from the glideFps config key
+    property int glideMs: 450
+    property real frac: 1
+    readonly property real eased: 1 - Math.pow(1 - frac, 3)
+    property double tickAt: 0
+    signal frame()
+    readonly property Timer glide: Timer {
+        interval: Math.max(16, Math.round(1000 / Math.max(1, stats.glideFps)))
+        repeat: true
+        running: stats.glideFps > 0 && stats.frac < 1
+        onTriggered: {
+            stats.frac = Math.min(1, (Date.now() - stats.tickAt) / stats.glideMs);
+            stats.frame();
+        }
+    }
+
     property real cpu
     property real ramPct
     property real diskPct
@@ -67,7 +87,10 @@ QtObject {
             stats.upText = stats.fmt(stats.sUp);
             stats.host = String(stats.sHost.value || "");
             stats.ticks++;
+            stats.tickAt = Date.now();
+            stats.frac = stats.glideFps > 0 ? 0 : 1;
             stats.tick();
+            stats.frame();
         }
     }
 }

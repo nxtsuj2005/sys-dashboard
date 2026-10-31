@@ -31,7 +31,7 @@ Card {
         }
 
         // Electron #core-bars: 4-column grid, at most 8 bars; above 8 cores each
-        // bar averages a contiguous group ("C0–3"). Values move once per tick, no easing.
+        // bar averages a contiguous group ("C0–3"). Bars ease on the paced glide frames.
         GridLayout {
             id: bars
             Layout.fillWidth: true
@@ -52,6 +52,7 @@ Card {
                     readonly property int b: Math.floor((index + 1) * bars.total / bars.n)
                     readonly property bool grouped: bars.total > bars.n
                     property real pct
+                    readonly property Glide shown: Glide { to: core.pct }
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     Layout.alignment: Qt.AlignTop
@@ -95,7 +96,7 @@ Card {
                         Rectangle {
                             id: fill
                             height: parent.height
-                            width: parent.width * core.pct / 100
+                            width: parent.width * core.shown.value / 100
                             readonly property color c: core.pct > 80 ? Theme.red : core.pct > 60 ? Theme.orange : Theme.accent
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal

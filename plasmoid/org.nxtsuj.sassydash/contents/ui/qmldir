@@ -4,6 +4,7 @@ AppSearch 1.0 AppSearch.qml
 Card 1.0 Card.qml
 Command 1.0 Command.qml
 Dashboard 1.0 Dashboard.qml
+Glide 1.0 Glide.qml
 EventsCard 1.0 EventsCard.qml
 KpiCard 1.0 KpiCard.qml
 NotesCard 1.0 NotesCard.qml

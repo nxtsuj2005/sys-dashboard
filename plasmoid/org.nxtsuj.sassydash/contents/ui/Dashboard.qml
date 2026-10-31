@@ -17,6 +17,8 @@ Rectangle {
     readonly property real bottomH: tall ? Math.max(230, height * 0.23) : Math.max(202, height * 0.26)
     readonly property real mainH: Math.max(tall ? 220 : 190, height - 2 * gap - 4 * gap - headerH - kpiH - termH - bottomH)
 
+    Binding { target: Stats; property: "glideFps"; value: Math.max(0, Math.min(30, Plasmoid.configuration.glideFps)) }
+
     signal runInTerminal(string command)
     onRunInTerminal: (command) => terminal.run(command)
 

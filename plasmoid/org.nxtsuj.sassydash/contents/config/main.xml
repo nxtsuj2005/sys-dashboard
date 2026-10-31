@@ -15,5 +15,9 @@
       <label>Weather location for wttr.in; empty = auto (by public IP, follows the laptop)</label>
       <default></default>
     </entry>
+    <entry name="glideFps" type="Int">
+      <label>Frames per second for graph/bar gliding after each update; 0 = snap (lightest)</label>
+      <default>10</default>
+    </entry>
   </group>
 </kcfg>

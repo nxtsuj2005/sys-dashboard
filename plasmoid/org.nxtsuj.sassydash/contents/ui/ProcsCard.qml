@@ -34,48 +34,55 @@ Card {
     }
 
     // Electron .tp-row: name + "cpu% memM" on one line, a 3 px bar under it scaled
-    // to the busiest process (min 2 %).
-    ListView {
+    // to the busiest process (min 2 %). Rows are fixed slots so bars can ease
+    // between refreshes instead of being rebuilt.
+    Column {
         id: list
         anchors.fill: parent
         clip: true
         spacing: 6
-        interactive: false
-        model: card.procs
         readonly property real maxCpu: Math.max(1, card.procs.length ? card.procs[0].cpu : 1)
-        delegate: Column {
-            id: row
-            required property var modelData
-            width: ListView.view.width
-            spacing: 3
-            RowLayout {
-                width: parent.width
-                spacing: 8
-                Text {
-                    Layout.fillWidth: true
-                    text: row.modelData.name
-                    elide: Text.ElideRight
-                    color: Theme.text
-                    font { family: Theme.mono; pixelSize: 10 }
+        Repeater {
+            model: 5
+            delegate: Column {
+                id: row
+                required property int index
+                readonly property var p: card.procs[index] ?? null
+                readonly property Glide bar: Glide {
+                    to: row.p ? Math.max(0.02, Math.min(1, row.p.cpu / list.maxCpu)) : 0
                 }
-                Text {
-                    textFormat: Text.StyledText
-                    text: row.modelData.cpu.toFixed(0) + "%&nbsp;<font size=\"1\" color=\"" + Theme.muted + "\">" + row.modelData.res + "</font>"
-                    color: Theme.accent
-                    font { family: Theme.mono; pixelSize: 10 }
+                visible: p !== null
+                width: list.width
+                spacing: 3
+                RowLayout {
+                    width: parent.width
+                    spacing: 8
+                    Text {
+                        Layout.fillWidth: true
+                        text: row.p ? row.p.name : ""
+                        elide: Text.ElideRight
+                        color: Theme.text
+                        font { family: Theme.mono; pixelSize: 10 }
+                    }
+                    Text {
+                        textFormat: Text.StyledText
+                        text: row.p ? row.p.cpu.toFixed(0) + "%&nbsp;<font size=\"1\" color=\"" + Theme.muted + "\">" + row.p.res + "</font>" : ""
+                        color: Theme.accent
+                        font { family: Theme.mono; pixelSize: 10 }
+                    }
                 }
-            }
-            Rectangle {
-                width: parent.width
-                height: 3
-                color: Theme.panel
                 Rectangle {
-                    height: parent.height
-                    width: parent.width * Math.max(0.02, Math.min(1, row.modelData.cpu / list.maxCpu))
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: Qt.tint(Theme.bg, Qt.alpha(Theme.accent, 0.55)) }
-                        GradientStop { position: 1; color: Theme.accent }
+                    width: parent.width
+                    height: 3
+                    color: Theme.panel
+                    Rectangle {
+                        height: parent.height
+                        width: parent.width * row.bar.value
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: Qt.tint(Theme.bg, Qt.alpha(Theme.accent, 0.55)) }
+                            GradientStop { position: 1; color: Theme.accent }
+                        }
                     }
                 }
             }
