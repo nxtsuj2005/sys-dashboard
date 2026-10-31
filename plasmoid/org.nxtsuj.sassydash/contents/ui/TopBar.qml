@@ -3,8 +3,8 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 
 // Compact header (Electron #compactbar): brand left, metrics + clock right.
-// Everything updates on the shared 1 s tick; gauges jump instead of easing,
-// so the header costs one repaint per second and nothing in between.
+// Values update on the shared 1 s tick; gauge arcs ease on the paced glide
+// frames. Every text slot has a fixed width so changing numbers never shift the bar.
 Rectangle {
     id: bar
     property bool tall: true          // >= 950 px screen height in Electron terms
@@ -23,19 +23,23 @@ Rectangle {
         color: "#90a4bb"
         font { family: Theme.mono; pixelSize: bar.tall ? 9 : 8; letterSpacing: 0.7 }
     }
-    component Value: Text {
+    // Text reserving the width of its widest expected content (`sample`).
+    component Slot: Text {
+        id: slot
+        property string sample
+        readonly property TextMetrics tm: TextMetrics { font: slot.font; text: slot.sample }
+        width: Math.ceil(tm.advanceWidth)
+        Layout.preferredWidth: width
+        elide: Text.ElideRight
         color: "#dce8f6"
         font { family: Theme.mono; pixelSize: bar.tall ? 12 : 11; weight: Font.Medium }
-    }
-    component Unit: Text {
-        color: "#98acc3"
-        font { family: Theme.mono; pixelSize: 9 }
     }
     // Half-ring arc (SVG "M4 23 A16 16 0 0 1 36 23" in a 40x29 box) with the value inside.
     component Gauge: Item {
         id: g
         property real pct: 0
         property color fill: "#91bffd"
+        readonly property Glide shown: Glide { to: Math.max(0, Math.min(100, g.pct)) }
         readonly property real s: (bar.tall ? 42 : 33) / 40
         implicitWidth: 40 * s
         implicitHeight: 29 * s
@@ -47,10 +51,10 @@ Rectangle {
                 PathAngleArc { centerX: 20 * g.s; centerY: 23 * g.s; radiusX: 16 * g.s; radiusY: 16 * g.s; startAngle: 180; sweepAngle: 180 }
             }
             ShapePath {
-                strokeColor: g.pct > 0 ? g.fill : "transparent"; strokeWidth: 3 * g.s; fillColor: "transparent"; capStyle: ShapePath.RoundCap
+                strokeColor: g.shown.value > 0.5 ? g.fill : "transparent"; strokeWidth: 3 * g.s; fillColor: "transparent"; capStyle: ShapePath.RoundCap
                 PathAngleArc {
                     centerX: 20 * g.s; centerY: 23 * g.s; radiusX: 16 * g.s; radiusY: 16 * g.s
-                    startAngle: 180; sweepAngle: 180 * Math.max(0, Math.min(100, g.pct)) / 100
+                    startAngle: 180; sweepAngle: 180 * g.shown.value / 100
                 }
             }
         }
@@ -137,7 +141,10 @@ Rectangle {
             spacing: 8
             Label { text: "RAM" }
             Gauge { pct: Stats.ramPct; fill: "#95c9b5" }
-            Unit { text: (Stats.ramUsed / 1073741824).toFixed(1) + " G / " + (Stats.ramTotal / 1073741824).toFixed(1) + " G" }
+            Slot {
+                sample: "00.0 G / 00.0 G"
+                color: "#98acc3"; font { pixelSize: 9; weight: Font.Normal }
+                text: (Stats.ramUsed / 1073741824).toFixed(1) + " G / " + (Stats.ramTotal / 1073741824).toFixed(1) + " G" }
         }
         RowLayout {
             Layout.leftMargin: bar.metricPad; Layout.rightMargin: bar.metricPad
@@ -151,21 +158,21 @@ Rectangle {
             Label { text: "NETZ" }
             Column {
                 spacing: bar.tall ? 2 : 1
-                Value { text: "↓ " + Stats.downText; color: "#83bcff"; font.pixelSize: bar.tall ? 10 : 9 }
-                Value { text: "↑ " + Stats.upText; color: "#8bcbb3"; font.pixelSize: bar.tall ? 10 : 9 }
+                Slot { sample: "↓ 1023.9 KiB/s"; text: "↓ " + Stats.downText; color: "#83bcff"; font.pixelSize: bar.tall ? 10 : 9 }
+                Slot { sample: "↓ 1023.9 KiB/s"; text: "↑ " + Stats.upText; color: "#8bcbb3"; font.pixelSize: bar.tall ? 10 : 9 }
             }
         }
         RowLayout {
             Layout.leftMargin: bar.metricPad; Layout.rightMargin: bar.metricPad
             spacing: 7
             Label { text: "TEMP" }
-            Value { text: Stats.temp > 0 ? Math.round(Stats.temp) + "°C" : "—"; color: "#dfbd84" }
+            Slot { sample: "100°C"; text: Stats.temp > 0 ? Math.round(Stats.temp) + "°C" : "—"; color: "#dfbd84" }
         }
         RowLayout {
             Layout.leftMargin: bar.metricPad; Layout.rightMargin: bar.metricPad
             spacing: 7
             Label { text: "LOAD" }
-            Value { text: Stats.load1.toFixed(2) }
+            Slot { sample: "00.00"; text: Stats.load1.toFixed(2) }
         }
         RowLayout {   // battery pill, laptops only
             visible: bar.batPct >= 0
@@ -185,8 +192,13 @@ Rectangle {
                 }
                 Rectangle { x: 23; y: 3; width: 2; height: 5; color: "#8aa8c2" }
             }
-            Value { text: bar.batPct + "%" + (bar.batStatus === "Charging" ? " ⚡" : "") }
-            Unit { visible: text !== ""; text: bar.batUnit; font.pixelSize: bar.tall ? 9 : 8 }
+            Slot { sample: "100% ⚡"; text: bar.batPct + "%" + (bar.batStatus === "Charging" ? " ⚡" : "") }
+            Slot {
+                visible: text !== ""
+                sample: "00:00 h · 00.0 W"
+                text: bar.batUnit
+                color: "#98acc3"; font { pixelSize: bar.tall ? 9 : 8; weight: Font.Normal }
+            }
         }
 
         Column {
