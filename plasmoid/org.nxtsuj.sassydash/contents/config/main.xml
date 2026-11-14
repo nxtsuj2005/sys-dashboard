@@ -4,6 +4,10 @@
       xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
   <kcfgfile name=""/>
   <group name="General">
+    <entry name="view" type="String">
+      <label>"main" = full dashboard, "monitor" = graph wall, "auto" = main on the primary screen, monitor on the others</label>
+      <default>auto</default>
+    </entry>
     <entry name="notes" type="String">
       <default></default>
     </entry>
@@ -16,8 +20,8 @@
       <default></default>
     </entry>
     <entry name="glideFps" type="Int">
-      <label>Frames per second for graph/bar gliding after each update; 0 = snap (lightest)</label>
-      <default>10</default>
+      <label>Frames per second for graph scrolling and bar gliding; 0 = snap (lightest). Shared by all screens</label>
+      <default>20</default>
     </entry>
     <entry name="reducedMotion" type="Bool">
       <label>No boot sequence, idle glitches or crash</label>

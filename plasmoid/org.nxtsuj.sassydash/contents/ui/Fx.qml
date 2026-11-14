@@ -266,6 +266,7 @@ Item {
         spawn(crashSeq());
     }
     function* termGlitch(steps, endVisible) {
+        if (!terminal) return;               // graph wall: no terminal card
         for (const [on, ms] of steps) {
             terminal.fx.hidden = !on;
             terminal.fx.dx = on ? Math.round(rnd(-90, 90)) : 0;

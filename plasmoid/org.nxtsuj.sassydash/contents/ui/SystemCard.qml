@@ -3,6 +3,9 @@ import QtQuick.Layouts
 import org.kde.ksysguard.sensors as Sensors
 
 Card {
+    id: card
+    property int maxBars: 8
+    property int barColumns: 4
     title: "System-Graph"
     headerExtras: [
         Legend { label: "CPU"; swatch: Theme.accent },
@@ -30,19 +33,19 @@ Card {
             colors: [Theme.accent, Theme.green]
         }
 
-        // Electron #core-bars: 4-column grid, at most 8 bars; above 8 cores each
+        // Electron #core-bars: 4-column grid, at most 8 bars (the graph wall shows more); beyond that each
         // bar averages a contiguous group ("C0–3"). Bars ease on the paced glide frames.
         GridLayout {
             id: bars
             Layout.fillWidth: true
             Layout.preferredHeight: 48
             Layout.topMargin: -2
-            columns: 4
+            columns: card.barColumns
             columnSpacing: 12
             rowSpacing: 6
             readonly property int total: Stats.cores
-            readonly property int n: Math.min(total, 8)
-            Rectangle { Layout.columnSpan: 4; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+            readonly property int n: Math.min(total, card.maxBars)
+            Rectangle { Layout.columnSpan: bars.columns; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
             Repeater {
                 model: bars.n
                 delegate: ColumnLayout {

@@ -5,6 +5,7 @@ Card {
     id: card
     title: "Top-Prozesse"
     property var procs: []         // [{ pid, cpu, res, name }]
+    property int rows: 5
 
     // top prints RES in KiB, or with an m/g/t suffix once it gets large.
     function mem(raw) {
@@ -18,7 +19,7 @@ Card {
     Command {
         every: 3000
         command: "LC_ALL=C top -bn2 -d0.6 -w 512 -o %CPU | awk '/^top -/{n++} n==2 && $1 ~ /^[0-9]+$/ "
-               + "{print $1 \"\\t\" $9 \"\\t\" $6 \"\\t\" $12; if (++c == 5) exit}'"
+               + "{print $1 \"\\t\" $9 \"\\t\" $6 \"\\t\" $12; if (++c == " + card.rows + ") exit}'"
         onFinished: (out) => {
             card.procs = out.split("\n").filter(l => l).map(l => {
                 const [pid, cpu, res, name] = l.split("\t");
@@ -43,7 +44,7 @@ Card {
         spacing: 6
         readonly property real maxCpu: Math.max(1, card.procs.length ? card.procs[0].cpu : 1)
         Repeater {
-            model: 5
+            model: card.rows
             delegate: Column {
                 id: row
                 required property int index

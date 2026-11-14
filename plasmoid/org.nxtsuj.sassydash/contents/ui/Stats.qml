@@ -11,22 +11,25 @@ QtObject {
     signal tick()
     property int ticks: 0
 
-    // Paced glide (Electron GLIDE_FPS): after each tick, `frac` runs 0 → 1 over
-    // glideMs at glideFps frames and `frame()` fires per step; then the scene rests
-    // until the next tick. Graphs and bars move on these frames only; glideFps 0 =
-    // snap once per tick. Frames cost a full repaint each, hence the short window.
-    property int glideFps: 10            // set from the glideFps config key
+    // Paced glide (Electron GLIDE_FPS): `frame()` fires glideFps times a second.
+    // Graphs scroll evenly through the whole tick (`scroll` 0 → 1, linear), bars
+    // and gauges ease to their new value in the first glideMs (`frac`/`eased`).
+    // glideFps 0 = snap once per tick. Every frame repaints the desktop.
+    property int glideFps: 20            // set from the glideFps config key
     property int glideMs: 450
     property real frac: 1
     readonly property real eased: 1 - Math.pow(1 - frac, 3)
+    property real scroll: 1
     property double tickAt: 0
     signal frame()
     readonly property Timer glide: Timer {
-        interval: Math.min(stats.glideMs / 3, Math.max(16, Math.round(1000 / Math.max(1, stats.glideFps))))   // >= 3 steps per glide
+        interval: Math.max(16, Math.round(1000 / Math.max(1, stats.glideFps)))
         repeat: true
-        running: stats.glideFps > 0 && stats.frac < 1
+        running: stats.glideFps > 0
         onTriggered: {
-            stats.frac = Math.min(1, (Date.now() - stats.tickAt) / stats.glideMs);
+            const t = Date.now() - stats.tickAt;
+            stats.frac = Math.min(1, t / stats.glideMs);
+            stats.scroll = Math.min(1, t / stats.timer.interval);
             stats.frame();
         }
     }
@@ -73,6 +76,7 @@ QtObject {
             // Restart the glide first, so Glides fed by the values below see frames coming.
             stats.tickAt = Date.now();
             stats.frac = stats.glideFps > 0 ? 0 : 1;
+            stats.scroll = stats.frac;
             stats.cpu = stats.num(stats.sCpu);
             stats.ramPct = stats.num(stats.sRamPct);
             stats.diskPct = stats.num(stats.sDiskPct);

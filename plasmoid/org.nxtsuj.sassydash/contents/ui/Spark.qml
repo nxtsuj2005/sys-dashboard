@@ -2,8 +2,8 @@ import QtQuick
 import org.kde.quickcharts as Charts
 
 // Rolling line chart (max two lines), GPU-drawn by QuickCharts. Samples are
-// pushed on Stats.tick; between samples the chart slides left one step on the
-// paced Stats frames (Electron's continuous glide), so only its x moves.
+// pushed on Stats.tick; between samples the chart slides left one step, evenly
+// over the whole tick on the paced Stats frames, so only its x moves.
 Item {
     id: spark
     property var values: []                  // current sample per line
@@ -18,7 +18,7 @@ Item {
 
     // history points span width + one step; the newest one starts hidden past the right edge.
     readonly property real step: width / Math.max(1, history - 2)
-    readonly property real phase: ((Stats.ticks % every) + Stats.eased) / every
+    readonly property real phase: ((Stats.ticks % every) + Stats.scroll) / every
     clip: true
 
     Charts.LineChart {
