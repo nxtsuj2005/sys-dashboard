@@ -24,10 +24,15 @@ if [ "${1:-}" != "--no-deps" ]; then
     $SUDO pacman -S --needed --noconfirm qmltermwidget kquickcharts libksysguard ksystemstats plasma5support procps-ng \
       || warn "pacman fehlgeschlagen — evtl. erst 'sudo pacman -Syu' (kein -Sy allein, Partial Upgrade)."
   elif command -v dnf     >/dev/null; then
-    # Fedora's qmltermwidget is Qt5-only (useless for Plasma 6) — build deps for our own Qt6 build instead.
     $SUDO dnf install -y kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng \
-      qt6-qtbase-devel qt6-qtdeclarative-devel gcc-c++ make curl tar \
       || warn "dnf fehlgeschlagen — fehlende Pakete manuell nachinstallieren."
+    # Fedora's qmltermwidget is Qt6 since F45; older releases ship Qt5 only (useless
+    # for Plasma 6) and get build deps for our own Qt6 build instead.
+    $SUDO dnf install -y qmltermwidget || true
+    if [ ! -f "$(rpm -E '%{_libdir}')/qt6/qml/QMLTermWidget/qmldir" ]; then
+      $SUDO dnf install -y qt6-qtbase-devel qt6-qtdeclarative-devel gcc-c++ make curl tar \
+        || warn "dnf fehlgeschlagen — Build-Tools für das Terminal-Modul manuell nachinstallieren."
+    fi
   elif command -v apt-get >/dev/null; then
     # Debian/Ubuntu ship no Qt6 qmltermwidget — build deps for our own build.
     $SUDO apt-get install -y qml6-module-org-kde-quickcharts qml6-module-org-kde-ksysguard ksystemstats libplasma5support6 procps \
