@@ -1,0 +1,16 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "nxtsuj2005"
+            }
+        ],
+        "Description": "Breeze Dark in SASSY·DASH colours, so panels sit flush on the dashboard",
+        "EnabledByDefault": true,
+        "Id": "sassydash",
+        "License": "LGPL",
+        "Name": "SASSY·DASH",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "5.0"
+}

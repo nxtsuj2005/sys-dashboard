@@ -30,6 +30,8 @@ git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-p
 
 `install.sh` prüft vor der Installation die Pflicht-Abhängigkeiten (QML-Module, ksystemstats, top, lsblk, curl) und bricht bei fehlenden ab. `--force` überspringt diese Prüfung.
 
+Dazu kommt der Plasma-Stil **SASSY·DASH** (Breeze Dark in den Dashboard-Farben, damit das Panel nahtlos auf dem Dashboard sitzt). Er wird nur bei der ersten Installation aktiviert; zurück geht es unter Systemeinstellungen → Plasma-Stil.
+
 Gut zu wissen:
 - Es ist ein Desktop-Layout (Containment), kein Widget: Desktop-Icons und andere Widgets auf diesem Bildschirm sind weg, solange es aktiv ist. Bei mehreren Monitoren pro Bildschirm wählbar.
 - Zwei Ansichten: `main` (volles Dashboard mit Terminal) und `monitor` (Graphen-Wand: CPU/RAM mit allen Kernen, Netzwerk, Datenträger-I/O, GPU, Temperatur, Prozesse). Config-Key `view`, Default `auto` = Hauptbildschirm `main`, jeder weitere `monitor`.

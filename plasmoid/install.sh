@@ -101,6 +101,18 @@ else
   kpackagetool6 -t Plasma/Applet -i "$PKG"
 fi
 
+# Plasma theme: Breeze Dark recoloured to the dashboard background, so panels show no seam.
+# Applied only on its first install; switching away later in System Settings sticks.
+say "Plasma-Theme SASSY·DASH"
+THEMEDIR="${XDG_DATA_HOME:-$HOME/.local/share}/plasma/desktoptheme/sassydash"
+THEME_NEW=0
+[ -d "$THEMEDIR" ] || THEME_NEW=1
+mkdir -p "$THEMEDIR"
+cp "$HERE"/desktoptheme/sassydash/* "$THEMEDIR/"
+if [ "$THEME_NEW" = 1 ]; then
+  plasma-apply-desktoptheme sassydash || warn "Theme nicht aktiviert: Systemeinstellungen → Plasma-Stil → SASSY·DASH."
+fi
+
 # Terminal module: use a system Qt6 build if present (Arch), else build our own into QMLROOT.
 # qmltermwidget points COLORSCHEMES_DIR at the first QML import path that has
 # QMLTermWidget/color-schemes, so QMLROOT goes first on QML_IMPORT_PATH either way.
