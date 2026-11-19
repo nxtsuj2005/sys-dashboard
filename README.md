@@ -28,6 +28,8 @@ Update:
 git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-plasmashell
 ```
 
+`install.sh` prüft vor der Installation die Pflicht-Abhängigkeiten (QML-Module, ksystemstats, top, lsblk, curl) und bricht bei fehlenden ab. `--force` überspringt diese Prüfung.
+
 Gut zu wissen:
 - Es ist ein Desktop-Layout (Containment), kein Widget: Desktop-Icons und andere Widgets auf diesem Bildschirm sind weg, solange es aktiv ist. Bei mehreren Monitoren pro Bildschirm wählbar.
 - Zwei Ansichten: `main` (volles Dashboard mit Terminal) und `monitor` (Graphen-Wand: CPU/RAM mit allen Kernen, Netzwerk, Datenträger-I/O, GPU, Temperatur, Prozesse). Config-Key `view`, Default `auto` = Hauptbildschirm `main`, jeder weitere `monitor`.

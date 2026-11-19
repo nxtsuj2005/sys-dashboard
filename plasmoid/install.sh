@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # SASSY·DASH plasmoid — install or upgrade (idempotent). Plasma 6 only.
 #   ./plasmoid/install.sh            deps + install/upgrade
-#   ./plasmoid/install.sh --no-deps  skip the package manager
+#   ./plasmoid/install.sh --no-deps  skip the package manager (preflight still runs)
+#   ./plasmoid/install.sh --force    skip the preflight (install even if deps are missing)
+# Flags can be combined. Preflight aborts BEFORE kpackagetool6 if mandatory deps are missing.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,15 +18,24 @@ warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*" >&2; }
 [ "$(id -u)" -eq 0 ] && { warn "Nicht als root ausführen."; exit 1; }
 command -v kpackagetool6 >/dev/null || { warn "kpackagetool6 fehlt — Plasma 6 erforderlich (Plasma 5 wird nicht unterstützt)."; exit 1; }
 
-if [ "${1:-}" != "--no-deps" ]; then
+NO_DEPS=0; FORCE=0
+for a in "$@"; do
+  case "$a" in
+    --no-deps) NO_DEPS=1 ;;
+    --force)   FORCE=1 ;;
+    *) warn "Unbekannte Option: $a (erlaubt: --no-deps, --force)"; exit 1 ;;
+  esac
+done
+
+if [ "$NO_DEPS" = 0 ]; then
   say "System-Pakete"
   SUDO=$(command -v sudo || command -v doas || true)
   [ -n "$SUDO" ] || warn "Weder sudo noch doas gefunden — Pakete bitte manuell installieren."
   if   command -v pacman  >/dev/null; then
-    $SUDO pacman -S --needed --noconfirm qmltermwidget kquickcharts libksysguard ksystemstats plasma5support procps-ng \
+    $SUDO pacman -S --needed --noconfirm qmltermwidget kquickcharts libksysguard ksystemstats plasma5support procps-ng curl \
       || warn "pacman fehlgeschlagen — evtl. erst 'sudo pacman -Syu' (kein -Sy allein, Partial Upgrade)."
   elif command -v dnf     >/dev/null; then
-    $SUDO dnf install -y kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng \
+    $SUDO dnf install -y kf6-kquickcharts libksysguard ksystemstats plasma5support procps-ng curl \
       || warn "dnf fehlgeschlagen — fehlende Pakete manuell nachinstallieren."
     # Fedora's qmltermwidget is Qt6 since F45; older releases ship Qt5 only (useless
     # for Plasma 6) and get build deps for our own Qt6 build instead.
@@ -41,6 +52,46 @@ if [ "${1:-}" != "--no-deps" ]; then
   else
     warn "Unbekannter Paketmanager — benötigt: qmltermwidget (Qt6) oder Qt6-Build-Tools, kquickcharts, libksysguard, ksystemstats, plasma5support, procps"
   fi
+fi
+
+# Preflight: mandatory runtime pieces must exist before the plasmoid is installed.
+# The terminal module is optional and handled further below (TERM_OK).
+QMLDIRS=()
+for d in "$(qtpaths6 --query QT_INSTALL_QML 2>/dev/null || true)" /usr/lib/qt6/qml /usr/lib64/qt6/qml /usr/lib/x86_64-linux-gnu/qt6/qml; do
+  [ -n "$d" ] && [ -d "$d" ] && QMLDIRS+=("$d")
+done
+have_qml() { # $1 = module path, e.g. org/kde/quickcharts
+  local d
+  for d in "${QMLDIRS[@]}"; do [ -f "$d/$1/qmldir" ] && return 0; done
+  return 1
+}
+have_ksystemstats() {
+  command -v ksystemstats >/dev/null && return 0
+  [ -x /usr/libexec/ksystemstats ] || [ -x /usr/lib/ksystemstats ] || [ -x /usr/lib64/ksystemstats ] && return 0
+  systemctl --user cat plasma-ksystemstats.service >/dev/null 2>&1
+}
+preflight() {
+  local missing=()
+  have_qml org/kde/quickcharts          || missing+=("QML-Modul org.kde.quickcharts (kquickcharts)")
+  have_qml org/kde/ksysguard/sensors    || missing+=("QML-Modul org.kde.ksysguard.sensors (libksysguard)")
+  have_qml org/kde/plasma/plasma5support || missing+=("QML-Modul org.kde.plasma.plasma5support (plasma5support)")
+  have_ksystemstats                     || missing+=("ksystemstats (Binary oder User-Service)")
+  command -v top   >/dev/null           || missing+=("top (procps / procps-ng)")
+  command -v lsblk >/dev/null           || missing+=("lsblk (util-linux)")
+  command -v curl  >/dev/null           || missing+=("curl (Wetter-Karte)")
+  command -v timeout >/dev/null         || missing+=("timeout (coreutils, für alle Karten-Befehle)")
+  if [ "${#missing[@]}" -gt 0 ]; then
+    warn "Pflicht-Abhängigkeiten fehlen:"
+    local m; for m in "${missing[@]}"; do warn "  - $m"; done
+    warn "Pakete installieren (ohne --no-deps macht das install.sh) oder mit --force trotzdem installieren."
+    return 1
+  fi
+  say "Preflight ok"
+}
+if [ "$FORCE" = 1 ]; then
+  warn "--force: Preflight übersprungen."
+else
+  preflight || exit 1
 fi
 
 say "Plasmoid $ID"

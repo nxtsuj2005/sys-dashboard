@@ -16,6 +16,9 @@ WORK="${XDG_CACHE_HOME:-$HOME/.cache}/sassydash/qmltermwidget-$COMMIT"
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m!!\033[0m  %s\n' "$*" >&2; exit 1; }
 
+# Leftovers of a killed earlier run (staging/backup dirs) are just garbage.
+rm -rf "$QMLROOT"/.QMLTermWidget.new.* "$QMLROOT"/.QMLTermWidget.bak.*
+
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$COMMIT" ] && [ -f "$DEST/qmldir" ]; then
   say "QMLTermWidget (Qt6) schon gebaut: $DEST"
   exit 0
@@ -40,9 +43,25 @@ say "Baue QMLTermWidget mit $QMAKE (dauert ~1 Min)"
   || die "Build fehlgeschlagen — Log: $WORK/build.log"
 [ -f "$WORK/QMLTermWidget/qmldir" ] || die "Build lieferte kein QMLTermWidget/qmldir — Log: $WORK/build.log"
 
+# Stage next to the target (same filesystem, so mv is atomic), verify, then swap.
+# The old module is only removed after the new one is in place.
 mkdir -p "$QMLROOT"
-rm -rf "$DEST"
-cp -r "$WORK/QMLTermWidget" "$DEST"
-echo "$COMMIT" > "$STAMP"
+NEW="$(mktemp -d "$QMLROOT/.QMLTermWidget.new.XXXXXX")"
+BAK="$QMLROOT/.QMLTermWidget.bak.$$"
+trap 'rm -rf "$NEW"' EXIT
+cp -r "$WORK/QMLTermWidget/." "$NEW/" || die "Kopieren des gebauten Moduls fehlgeschlagen — bestehende Installation unverändert"
+[ -f "$NEW/qmldir" ] || die "Staging unvollständig (qmldir fehlt) — bestehende Installation unverändert"
+compgen -G "$NEW/*.so" >/dev/null || die "Staging unvollständig (Plugin .so fehlt) — bestehende Installation unverändert"
+echo "$COMMIT" > "$NEW/.sassydash-commit"
+chmod 755 "$NEW"  # mktemp creates 0700
+
+if [ -e "$DEST" ]; then
+  mv "$DEST" "$BAK" || die "Konnte bestehende Installation nicht sichern"
+fi
+if ! mv "$NEW" "$DEST"; then
+  [ -e "$BAK" ] && mv "$BAK" "$DEST"
+  die "Installation fehlgeschlagen — vorherige Version wiederhergestellt"
+fi
+rm -rf "$BAK"
 rm -rf "$WORK"
 say "QMLTermWidget (Qt6) installiert: $DEST"
