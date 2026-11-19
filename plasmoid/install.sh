@@ -113,6 +113,27 @@ if [ "$THEME_NEW" = 1 ]; then
   plasma-apply-desktoptheme sassydash || warn "Theme nicht aktiviert: Systemeinstellungen → Plasma-Stil → SASSY·DASH."
 fi
 
+# Lock screen: since Plasma 6 it lives in the shell package, and the greeter picks that via
+# PLASMA_DEFAULT_SHELL. Setting it only for KWin (the greeter's parent) leaves plasmashell alone.
+# A broken lock QML makes the greeter fall back to its built-in locker, so this cannot lock you out.
+say "Lockscreen SASSY·DASH"
+LOCKID="org.nxtsuj.sassydash.lock"
+if kpackagetool6 -t Plasma/Shell -l 2>/dev/null | grep -qx "$LOCKID"; then
+  kpackagetool6 -t Plasma/Shell -u "$HERE/lockscreen/$LOCKID"
+else
+  kpackagetool6 -t Plasma/Shell -i "$HERE/lockscreen/$LOCKID"
+fi
+DROPIN="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/plasma-kwin_wayland.service.d/sassydash-lock.conf"
+mkdir -p "$(dirname "$DROPIN")"
+cat > "$DROPIN" <<EOF
+# Written by sys-dashboard/plasmoid/install.sh. Delete this file and log in again for the stock lock screen.
+[Service]
+Environment=PLASMA_DEFAULT_SHELL=$LOCKID
+# The greeter has no network; it reads the Proxmox guest status from ~/.cache/sassydash/pve.json.
+Environment=QML_XHR_ALLOW_FILE_READ=1
+EOF
+systemctl --user daemon-reload || warn "systemctl --user daemon-reload fehlgeschlagen."
+
 # Terminal module: use a system Qt6 build if present (Arch), else build our own into QMLROOT.
 # qmltermwidget points COLORSCHEMES_DIR at the first QML import path that has
 # QMLTermWidget/color-schemes, so QMLROOT goes first on QML_IMPORT_PATH either way.
@@ -141,4 +162,4 @@ if [ "$TERM_OK" = 1 ]; then
 fi
 
 say "Fertig. Rechtsklick auf den Desktop → „Desktop und Hintergrundbild einrichten…“ → Layout: SASSY·DASH → Anwenden."
-say "Terminal/Farbschema greifen nach dem nächsten Login; Updates: git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-plasmashell"
+say "Terminal/Farbschema/Lockscreen greifen nach dem nächsten Login; Updates: git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-plasmashell"

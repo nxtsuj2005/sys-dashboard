@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "Plasma/Shell",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "nxtsuj2005"
+            }
+        ],
+        "Description": "SASSY·DASH lock screen: clock, CRT scan beam, Proxmox guest tree. Used only by the screen locker.",
+        "Id": "org.nxtsuj.sassydash.lock",
+        "License": "GPL-2.0-or-later",
+        "Name": "SASSY·DASH Lock",
+        "Version": "1.0"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-APIVersion": "2"
+}
