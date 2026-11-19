@@ -257,6 +257,7 @@
   #svc-running.is-muted { color: var(--muted); }
   .svc-val.is-green { color: var(--green); }
   .svc-val.is-red   { color: var(--red); }
+  .svc-val.is-muted { color: var(--muted); }
   #svc-fail-list { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
   .svc-fail-row { display: flex; gap: 8px; font: 400 11px/1.5 var(--mono); }
   .svc-fail-row .n { color: var(--red); flex-shrink: 0; }
@@ -1377,8 +1378,11 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
       window.dispatchEvent(new CustomEvent('sysdash-services', { detail: d }));
       setText(svcRunning, 'running ' + (d.runningCount != null ? d.runningCount : '—'));
       const fc = d.failedCount || 0;
-      setText(svcFailed, 'failed ' + fc, true);
-      const cls = 'svc-val ' + (fc > 0 ? 'is-red' : 'is-green');
+      // Error/stale state must never look like a green 0
+      const unknown = !!d.error && d.failedCount == null;
+      setText(svcFailed, unknown ? 'failed ?' : 'failed ' + fc + (d.error ? ' (veraltet)' : ''), true);
+      svcFailed.title = d.error ? 'systemctl-Abfrage fehlgeschlagen' : '';
+      const cls = 'svc-val ' + (fc > 0 ? 'is-red' : d.error ? 'is-muted' : 'is-green');
       if (svcFailed.className !== cls) svcFailed.className = cls;
       const failed = d.failed || [];
       for (let i = 0; i < svcRows.length; i++) {
@@ -2583,11 +2587,13 @@ html,body{min-width:1200px}body::after,#fx-sweep{display:none}#app{grid-template
   }
   document.querySelectorAll('.event-filter').forEach((b) => { b.onclick = () => { filter = b.dataset.filter; renderEvents(); }; });
   window.addEventListener('sysdash-services', (ev) => {
+    // No data yet: an empty list here would replay every failed unit as new on the next good poll.
+    if (ev.detail && ev.detail.error && !ev.detail.stale) return;
     const failed = (ev.detail && ev.detail.failed) || [];
     const cur = new Map(failed.map((f) => [f.name, f.desc || '']));
     if (prev) {
       cur.forEach((d, n) => { if (!prev.has(n)) events.unshift({ time: hhmm(), name: n, kind: 'failed', label: 'fehlgeschlagen', desc: d }); });
-      prev.forEach((d, n) => { if (!cur.has(n)) events.unshift({ time: hhmm(), name: n, kind: 'new', label: 'wieder aktiv', desc: d }); });
+      prev.forEach((d, n) => { if (!cur.has(n)) events.unshift({ time: hhmm(), name: n, kind: 'new', label: 'kein Fehler mehr', desc: d }); });
     } else {
       cur.forEach((d, n) => events.push({ time: hhmm(), name: n, kind: 'failed', label: 'fehlgeschlagen', desc: d }));
     }

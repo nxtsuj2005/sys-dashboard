@@ -516,14 +516,28 @@ function readHottestTempC() {
     return milli === null ? null : Math.round(milli / 1000);
   } catch { return null; }
 }
+// >>> cpu-delta
+const cpuSample = () => os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
+// Per-core load % between two samples; null if the core count changed (hotplug) → discard.
+function cpuDelta(s, e) {
+  if (!s.length || s.length !== e.length) return null;
+  return s.map((x, i) => {
+    const dt = e[i].total - x.total;
+    return dt > 0 ? Math.round(100 * (1 - (e[i].idle - x.idle) / dt)) : 0;
+  });
+}
+// <<< cpu-delta
+let lastCpu = null;
 handleIpc('get-system-stats', async () => {
   return new Promise((resolve) => {
-    const s = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
+    let s = cpuSample();
     setTimeout(() => {
-      const e = os.cpus().map(c => ({ idle: c.times.idle, total: Object.values(c.times).reduce((a,b)=>a+b,0) }));
-      const cores = s.map((x,i) => Math.round(100*(1-(e[i].idle-x.idle)/(e[i].total-x.total))));
+      const e = cpuSample();
+      const cores = cpuDelta(s, e);
+      if (cores) lastCpu = { avg: Math.round(cores.reduce((a,b)=>a+b,0)/cores.length), cores };
+      else log(`get-system-stats: Kernzahl geändert (${s.length} → ${e.length}), Sample verworfen`);
       resolve({
-        cpu:    { avg: Math.round(cores.reduce((a,b)=>a+b,0)/cores.length), cores },
+        cpu:    lastCpu || { avg: 0, cores: e.map(() => 0) },
         ram:    readRam(),
         load:   os.loadavg(),
         uptime: Math.round(os.uptime()),
@@ -538,12 +552,18 @@ handleIpc('get-system-stats', async () => {
 handleIpc('get-hostname', () => { try { return os.hostname(); } catch (e) { log('get-hostname: ' + e.message); return ''; } });
 
 // ── IPC: systemd-Dienste ───────────────────────────────────────
+let lastServices = null;   // last successful result, served marked stale on errors
 handleIpc('get-services', async () => new Promise((resolve) => {
-  const done = (r) => resolve(r);
+  const fail = (msg) => {
+    const base = lastServices || { failed: [], failedCount: null, runningCount: null };
+    resolve({ ...base, error: msg, stale: !!lastServices });
+  };
+  const done = (r) => { lastServices = r; resolve(r); };
+  // null = query failed (distinct from a legitimately empty output)
   const run = (cmd) => new Promise((res) => {
     exec(cmd, { timeout: 4000 }, (err, out) => {
       if (err) log('get-services: ' + err.message);
-      res(err ? '' : (out || ''));
+      res(err ? null : (out || ''));
     });
   });
   const parseFailed = (text) => {
@@ -564,6 +584,7 @@ handleIpc('get-services', async () => new Promise((resolve) => {
     run('systemctl list-units --state=failed --no-legend --no-pager --plain'),
     run('systemctl list-units --state=running --no-legend --no-pager --plain'),
   ]).then(([userFailed, sysFailed, running]) => {
+    if (userFailed === null || sysFailed === null || running === null) return fail('systemctl-Abfrage fehlgeschlagen');
     const byName = new Map();
     for (const u of [...parseFailed(userFailed), ...parseFailed(sysFailed)]) {
       if (!byName.has(u.name)) byName.set(u.name, u);
@@ -571,7 +592,7 @@ handleIpc('get-services', async () => new Promise((resolve) => {
     const failed = [...byName.values()];
     const runningCount = running.split('\n').filter(l => l.trim()).length;
     done({ failed, failedCount: failed.length, runningCount });
-  }).catch((e) => { log('get-services: ' + e.message); done({ failed: [], failedCount: 0, runningCount: 0 }); });
+  }).catch((e) => { log('get-services: ' + e.message); fail(e.message); });
 }));
 
 // ── IPC: Network ───────────────────────────────────────────────
@@ -826,6 +847,21 @@ function raiseTerminalSoon() {
   raiseTerminal();
 }
 
+// >>> geom-validate
+const GEOM_MAX = 100000;
+// Renderer input is untrusted: returns clamped integer geometry or null (reject).
+function sanitizeGeom(geom) {
+  if (!geom || typeof geom !== 'object') return null;
+  const { x, y, w, h } = geom;
+  for (const v of [x, y, w, h]) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  }
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
+  return { x: clamp(x, -GEOM_MAX, GEOM_MAX), y: clamp(y, -GEOM_MAX, GEOM_MAX),
+           w: clamp(w, 1, GEOM_MAX), h: clamp(h, 1, GEOM_MAX) };
+}
+// <<< geom-validate
+
 function toScreenGeom(geom) {
   // Nicht mainWindow.getBounds(): unter Wayland meldet Electron dort einen veralteten
   // Versatz (z. B. 16,10), der den xterm über Ränder und Eingabeleiste schiebt.
@@ -998,13 +1034,17 @@ function spawnTerminal() {
 }
 
 onIpc('terminal-spawn', (event, geom) => {
-  termGeom = toScreenGeom(geom);
+  const g = sanitizeGeom(geom);
+  if (!g) { log('terminal-spawn: ungültige Geometrie verworfen'); return; }
+  termGeom = toScreenGeom(g);
   termRestartAttempts = 0;
   spawnTerminal();
 });
 
 onIpc('terminal-geometry', (event, geom) => {
-  termGeom = toScreenGeom(geom);
+  const g = sanitizeGeom(geom);
+  if (!g) { log('terminal-geometry: ungültige Geometrie verworfen'); return; }
+  termGeom = toScreenGeom(g);
   clearTimeout(geomDebounceTimer);
   geomDebounceTimer = setTimeout(() => {
     if (termWid) moveTerminalWindow(termWid, termGeom.x, termGeom.y, termGeom.w, termGeom.h);
@@ -1116,12 +1156,13 @@ onIpc('launch-app', (_event, key) => {
 // ── App-Suche (Ctrl+K) — alle installierten .desktop-Einträge ──
 // Der Renderer bekommt nur {id, name}; gestartet wird ausschließlich über eine
 // id aus genau dieser (im Main gecachten) Liste — kein Kommando vom Renderer.
+// XDG precedence: first match wins, so user dirs must come before system dirs.
 const DESKTOP_DIRS = [
-  '/usr/share/applications',
-  '/usr/local/share/applications',
   path.join(os.homedir(), '.local/share/applications'),
-  '/var/lib/flatpak/exports/share/applications',
   path.join(os.homedir(), '.local/share/flatpak/exports/share/applications'),
+  '/usr/local/share/applications',
+  '/usr/share/applications',
+  '/var/lib/flatpak/exports/share/applications',
   '/var/lib/snapd/desktop/applications',
 ];
 let appCache = null;
@@ -1146,8 +1187,28 @@ function parseDesktopEntry(text) {
   return e;
 }
 
+// >>> desktop-scan
+// Hidden/NoDisplay entries still reserve their id so lower-priority dirs can't resurrect them.
+function pickDesktopEntry(seen, id, text, file) {
+  if (seen.has(id)) return null;
+  const e = parseDesktopEntry(text);
+  const hidden = /^true$/i.test(e.NoDisplay || '') || /^true$/i.test(e.Hidden || '');
+  seen.add(id);
+  if (hidden || !e.Name || !e.Exec) return null;
+  if (e.Type && e.Type !== 'Application') return null;
+  return {
+    id,
+    name: e.Name,
+    exec: stripFieldCodes(e.Exec),
+    terminal: /^true$/i.test(e.Terminal || ''),
+    file,
+  };
+}
+// <<< desktop-scan
+
 function scanApps() {
   const byId = new Map();
+  const seen = new Set();
   for (const dir of DESKTOP_DIRS) {
     let files;
     try { files = fs.readdirSync(dir); }
@@ -1155,21 +1216,12 @@ function scanApps() {
     for (const f of files) {
       if (!f.endsWith('.desktop')) continue;
       const id = f.slice(0, -8);
-      if (byId.has(id)) continue;
+      if (seen.has(id)) continue;
       let text;
       try { text = fs.readFileSync(path.join(dir, f), 'utf8'); }
       catch (e) { if (e.code !== 'ENOENT') log(`Desktop-Datei ${f}: ${e.message}`); continue; }
-      const e = parseDesktopEntry(text);
-      if (!e.Name || !e.Exec) continue;
-      if (e.Type && e.Type !== 'Application') continue;
-      if (/^true$/i.test(e.NoDisplay || '') || /^true$/i.test(e.Hidden || '')) continue;
-      byId.set(id, {
-        id,
-        name: e.Name,
-        exec: stripFieldCodes(e.Exec),
-        terminal: /^true$/i.test(e.Terminal || ''),
-        file: path.join(dir, f),
-      });
+      const entry = pickDesktopEntry(seen, id, text, path.join(dir, f));
+      if (entry) byId.set(id, entry);
     }
   }
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
@@ -1212,6 +1264,9 @@ onIpc('launch-desktop', (_event, id) => {
     else log(`launch-desktop: ${entry.name}: ${err && err.message}`);
   });
   child.on('spawn', () => log(`launch-desktop: ${entry.name}`));
+  child.on('exit', (code, sig) => {
+    if (code !== 0) log(`launch-desktop: gio launch für ${entry.name} fehlgeschlagen (${sig || 'exit ' + code})`);
+  });
   child.unref();
 });
 

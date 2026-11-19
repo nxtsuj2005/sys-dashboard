@@ -5,7 +5,7 @@ let profile = null;
 try {
   const arg = process.argv.find(a => a.startsWith('--sys-dashboard-profile='));
   if (arg) profile = JSON.parse(Buffer.from(arg.slice('--sys-dashboard-profile='.length), 'base64').toString('utf8'));
-} catch {}
+} catch (e) { console.warn('preload: Hardware-Profil nicht lesbar:', e); }
 
 const hasBattery = profile
   ? !!profile.battery

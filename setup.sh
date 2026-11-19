@@ -13,6 +13,22 @@ warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*" >&2; }
 
 [ "$(id -u)" -eq 0 ] && { warn "Nicht als root ausführen (sudo wird bei Bedarf selbst genutzt)."; exit 1; }
 
+# Conflict check first, before anything is changed (no sudo, no installs).
+if [ "$REPO" != "$TARGET" ] && [ "$(readlink -f "$TARGET")" != "$(readlink -f "$REPO")" ]; then
+  if [ -L "$TARGET" ]; then
+    CUR="$(readlink -f "$TARGET" 2>/dev/null || true)"
+    if [ "$CUR" != "$(readlink -f "$REPO")" ]; then
+      warn "$TARGET zeigt bereits auf '$CUR', nicht auf dieses Repo ($REPO)."
+      warn "Autostart würde die andere Kopie starten. Abbruch — nichts wurde geändert. Link manuell prüfen/entfernen und erneut ausführen."
+      exit 1
+    fi
+  elif [ -e "$TARGET" ]; then
+    warn "$TARGET existiert bereits und ist kein Symlink auf dieses Repo ($REPO)."
+    warn "Autostart würde die andere Kopie starten. Abbruch — nichts wurde geändert, keine Daten gelöscht. Verzeichnis verschieben oder dort ./setup.sh ausführen."
+    exit 1
+  fi
+fi
+
 # ── 1. System-Pakete ─────────────────────────────────────────
 say "System-Pakete"
 if   command -v dnf    >/dev/null; then sudo dnf install -y nodejs npm xterm xdotool fish curl glib2 systemd-udev dbus-tools
@@ -23,12 +39,8 @@ else warn "Kein bekannter Paketmanager — installiere manuell: node, npm, xterm
 # ── 2. Repo an den Pfad legen, den main.js erwartet ──────────
 say "Verknüpfe $TARGET"
 mkdir -p "$(dirname "$TARGET")"
-if [ "$REPO" != "$TARGET" ]; then
-  if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
-    warn "$TARGET existiert bereits und ist kein Symlink — überspringe Verknüpfung."
-  else
-    ln -sfn "$REPO" "$TARGET"
-  fi
+if [ "$REPO" != "$TARGET" ] && [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+  ln -s "$REPO" "$TARGET"
 fi
 
 # ── 3. npm-Abhängigkeiten (Electron) ─────────────────────────
