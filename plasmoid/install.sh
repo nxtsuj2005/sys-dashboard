@@ -115,7 +115,9 @@ fi
 
 # Lock screen: since Plasma 6 it lives in the shell package, and the greeter picks that via
 # PLASMA_DEFAULT_SHELL. Setting it only for KWin (the greeter's parent) leaves plasmashell alone.
-# A broken lock QML makes the greeter fall back to its built-in locker, so this cannot lock you out.
+# QML that fails to load makes the greeter fall back to its built-in locker; a runtime bug does not,
+# so the emergency exit is `loginctl unlock-session` from a TTY or SSH.
+# QML_XHR_ALLOW_FILE_READ applies to all of KWin (scripts and effects may then read user files via XHR).
 say "Lockscreen SASSY·DASH"
 LOCKID="org.nxtsuj.sassydash.lock"
 if kpackagetool6 -t Plasma/Shell -l 2>/dev/null | grep -qx "$LOCKID"; then

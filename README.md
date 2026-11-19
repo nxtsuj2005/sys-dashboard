@@ -32,7 +32,7 @@ git pull && ./plasmoid/install.sh --no-deps && systemctl --user restart plasma-p
 
 Dazu kommt der Plasma-Stil **SASSY·DASH** (Breeze Dark in den Dashboard-Farben, damit das Panel nahtlos auf dem Dashboard sitzt). Er wird nur bei der ersten Installation aktiviert; zurück geht es unter Systemeinstellungen → Plasma-Stil.
 
-Außerdem ein eigener **Lockscreen** (Uhr, `$ unlock`-Prompt, Scanline, Proxmox-Gästebaum; kein Name, Avatar oder Benachrichtigungen). Er gilt nach dem nächsten Login. Der Baum liest `~/.cache/sassydash/pve.json` (`{"ts": <unix>, "guests": [{"id": 105, "up": true}]}`); fehlt die Datei oder ist sie älter als 2 Minuten, wird er grau. Zurück zum Standard-Lockscreen: `rm ~/.config/systemd/user/plasma-kwin_wayland.service.d/sassydash-lock.conf` und neu einloggen.
+Außerdem ein eigener **Lockscreen** (Uhr, `$ unlock`-Prompt, Scanline, Proxmox-Gästebaum; kein Name, Avatar oder Benachrichtigungen). Er gilt nach dem nächsten Login. Der Baum liest `~/.cache/sassydash/pve.json` (`{"ts": <unix>, "guests": [{"id": 105, "up": true}]}`); fehlt die Datei oder ist sie älter als 2 Minuten, wird er grau. Zurück zum Standard-Lockscreen: `rm ~/.config/systemd/user/plasma-kwin_wayland.service.d/sassydash-lock.conf` und neu einloggen. Notausgang, falls er hängt: auf einer TTY (Strg+Alt+F3) oder per SSH `loginctl unlock-session`. Hinweis: `QML_XHR_ALLOW_FILE_READ=1` gilt für den ganzen KWin-Prozess.
 
 Gut zu wissen:
 - Es ist ein Desktop-Layout (Containment), kein Widget: Desktop-Icons und andere Widgets auf diesem Bildschirm sind weg, solange es aktiv ist. Bei mehreren Monitoren pro Bildschirm wählbar.

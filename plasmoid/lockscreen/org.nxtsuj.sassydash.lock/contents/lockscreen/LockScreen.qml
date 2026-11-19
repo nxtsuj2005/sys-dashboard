@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Effects
 import org.kde.kirigami as Kirigami
 
@@ -29,6 +30,7 @@ Item {
     readonly property bool still: Kirigami.Units.longDuration <= 1
     property bool unlocking: false
     property bool failed: false
+    property string pendingPassword    // typed while PAM was still cooling down
     property date now: new Date()
 
     onClearPassword: entry.text = ""
@@ -49,6 +51,12 @@ Item {
             Qt.quit();
         }
         function onErrorMessageChanged() { if (authenticator.errorMessage) console.warn("sassydash-lock:", authenticator.errorMessage); }
+        function onPamTimeoutChanged() {
+            if (!authenticator.pamTimeout && root.pendingPassword) {
+                authenticator.respond(root.pendingPassword);
+                root.pendingPassword = "";
+            }
+        }
     }
     Component.onCompleted: authenticator.startAuthenticating()
     Timer { // heart beat keeping the PAM conversation alive
@@ -111,19 +119,22 @@ Item {
                     visible: entry.text.length > 0
                 }
                 Rectangle {
+                    id: cursor
                     width: prompt.promptFont.pixelSize * 0.6; height: prompt.promptFont.pixelSize * 1.1
                     anchors.verticalCenter: parent.verticalCenter
                     color: root.accent
-                    Timer { interval: 500; running: true; repeat: true; onTriggered: parent.opacity = parent.opacity > 0 ? 0 : 1 }
+                    Timer { interval: 500; running: true; repeat: true; onTriggered: cursor.opacity = cursor.opacity > 0 ? 0 : 1 }
                 }
                 NumberAnimation on x { id: shake; running: false; from: -8; to: 0; duration: 320; easing.type: Easing.OutElastic; easing.amplitude: 3 }
             }
             Text {
                 text: root.unlocking ? "ok"
+                    : authenticator.errorMessage ? authenticator.errorMessage     // e.g. faillock
                     : root.failed ? "falsch — nochmal"
                     : authenticator.pamTimeout ? "kurz warten …"
+                    : authenticator.infoMessage ? authenticator.infoMessage
                     : "PIN eingeben · Enter"
-                color: root.unlocking ? root.green : root.failed ? root.red : root.muted
+                color: root.unlocking ? root.green : (root.failed || authenticator.errorMessage) ? root.red : root.muted
                 font { family: root.mono; pixelSize: Math.max(10, Math.min(16, scene.height * 0.016)) }
             }
         }
@@ -214,14 +225,15 @@ Item {
         focus: true
         echoMode: TextInput.Password
         enabled: !root.unlocking
-        Component.onCompleted: forceActiveFocus()
+        Component.onCompleted: { Window.window?.requestActivate(); forceActiveFocus(); }
         onTextChanged: if (text.length) root.failed = false
         Keys.onEscapePressed: text = ""
         onAccepted: {
             if (!text.length) return;
-            if (authenticator.pamTimeout) return;     // PAM still cooling down after a failure
+            if (authenticator.pamTimeout) { root.pendingPassword = text; return; }  // sent once PAM cools down
             authenticator.respond(text);
         }
     }
-    MouseArea { anchors.fill: parent; onPressed: entry.forceActiveFocus() }
+    // With several screens, a click pulls the keyboard to this one.
+    MouseArea { anchors.fill: parent; onPressed: { Window.window?.requestActivate(); entry.forceActiveFocus(); } }
 }
