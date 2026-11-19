@@ -8,6 +8,13 @@ ContainmentItem {
     id: root
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
+    // Fills the whole screen, panel strip included, so a floating or translucent
+    // panel sits on the dashboard colour instead of the wallpaper.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.backdrop
+    }
+
     Dashboard {
         x: root.availableScreenRect.x
         y: root.availableScreenRect.y

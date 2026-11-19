@@ -39,17 +39,26 @@ Card {
     ColumnLayout {
         anchors.fill: parent
         spacing: 3
-        Text {
-            text: kpi.value
-            color: kpi.valueColor
-            font { family: Theme.display; pixelSize: kpi.height >= 92 ? 30 : 25; weight: Font.Bold; letterSpacing: 0.5 }
-            Behavior on color { ColorAnimation { duration: 350 } }
-        }
-        Text {
-            visible: kpi.sub !== ""
-            text: kpi.sub
-            color: Theme.muted
-            font { family: Theme.mono; pixelSize: 10 }
+        // The sub line sits beside the value: stacked, it pushed the spark past the card's bottom edge.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Text {
+                text: kpi.value
+                color: kpi.valueColor
+                font { family: Theme.display; pixelSize: kpi.height >= 92 ? 30 : 25; weight: Font.Bold; letterSpacing: 0.5 }
+                Behavior on color { ColorAnimation { duration: 350 } }
+            }
+            Text {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.alignment: Qt.AlignBaseline
+                visible: kpi.sub !== ""
+                text: kpi.sub
+                elide: Text.ElideRight
+                color: Theme.muted
+                font { family: Theme.mono; pixelSize: 10 }
+            }
         }
         Spark {
             id: spark
