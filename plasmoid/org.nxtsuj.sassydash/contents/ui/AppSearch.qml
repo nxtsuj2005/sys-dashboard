@@ -55,20 +55,22 @@ Rectangle {
             console.warn("sassydash: refusing to launch unusual desktop file path:", a.file);
             return;
         }
-        launcher.command = "sh -c 'setsid -f gio launch \"$1\" >/dev/null 2>&1 || setsid -f kioclient exec \"$1\"' _ " + a.file;
+        // No -f: setsid then execs in place, so a failing gio/kioclient reports its exit code.
+        launcher.command = "sh -c 'setsid gio launch \"$1\" >/dev/null 2>&1 || setsid kioclient exec \"$1\" >/dev/null 2>&1' _ " + a.file;
         launcher.run();
         close();
     }
 
     // First entry per desktop id wins, in XDG priority order (user dirs first like XDG says,
-    // then system); NoDisplay/Hidden/non-Application entries are skipped.
+    // then system). NoDisplay/Hidden/non-Application entries are skipped but still claim
+    // their id, so a user override with Hidden=true really hides the system entry.
     Command {
         id: scan
         command: "sh -c 'for d in \"$HOME/.local/share/applications\" \"$HOME/.local/share/flatpak/exports/share/applications\" "
                + "/var/lib/flatpak/exports/share/applications /usr/local/share/applications /usr/share/applications /var/lib/snapd/desktop/applications; do "
                + "[ -d \"$d\" ] && for f in \"$d\"/*.desktop; do [ -f \"$f\" ] && printf \"%s\\n\" \"$f\"; done; done' | "
-               + "awk 'BEGIN{FS=\"=\"} function flush(){ if (file != \"\" && name != \"\" && ex && !hide && (type == \"\" || type == \"Application\") && !(id in seen)) "
-               + "{ seen[id]=1; print id \"\\t\" name \"\\t\" term \"\\t\" file } } "
+               + "awk 'BEGIN{FS=\"=\"} function flush(){ if (file == \"\" || (id in seen)) return; seen[id]=1; "
+               + "if (name != \"\" && ex && !hide && (type == \"\" || type == \"Application\")) print id \"\\t\" name \"\\t\" term \"\\t\" file } "
                + "{ flush(); file=$0; id=file; sub(/.*\\//, \"\", id); sub(/\\.desktop$/, \"\", id); name=\"\"; ex=0; hide=0; type=\"\"; term=0; sec=0; "
                + "while ((getline l < file) > 0) { if (l ~ /^\\[/) { sec = (l == \"[Desktop Entry]\"); continue } if (!sec) continue; "
                + "k=l; sub(/=.*/, \"\", k); v=substr(l, length(k) + 2); gsub(/^[ \\t]+|[ \\t]+$/, \"\", k); "
@@ -85,7 +87,12 @@ Rectangle {
             if (search.visible) search.filter();
         }
     }
-    Command { id: launcher }
+    Command {
+        id: launcher
+        onFinished: (stdout, exitCode) => {
+            if (exitCode !== 0) console.warn("sassydash: app launch failed, exit", exitCode, launcher.command);
+        }
+    }
 
     MouseArea { anchors.fill: parent; onPressed: search.close() }
 

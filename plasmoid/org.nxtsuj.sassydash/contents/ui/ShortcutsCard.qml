@@ -27,15 +27,22 @@ Card {
             console.warn("sassydash: unknown shortcut key:", key);
             return "";
         }
-        let script = "command -v setsid >/dev/null 2>&1 || { printf 'setsid fehlt\\n'; exit 127; }; ";
+        // try: start detached, then give it a second. Still running or exited 0 (handed off to
+        // a running instance) = launched; a quick non-zero exit falls through to the next candidate.
+        let script = "command -v setsid >/dev/null 2>&1 || { printf 'setsid fehlt\\n'; exit 127; }; "
+                   + "try() { setsid \"$@\" </dev/null >/dev/null 2>&1 & p=$!; sleep 1; "
+                   + "kill -0 \"$p\" 2>/dev/null && exit 0; wait \"$p\" && exit 0; }; ";
         for (const candidate of candidates[key]) {
             // Only fixed whitelist tokens are interpolated, never a caller's command.
             const args = candidate.map(token => "'" + token + "'").join(" ")
                        + (candidate[0] === "xdg-open" ? ' "$HOME"' : "");
-            script += "if command -v '" + candidate[0] + "' >/dev/null 2>&1; then "
-                    + "setsid -f -- " + args + " </dev/null >/dev/null 2>&1; exit \"$?\"; fi; ";
+            // flatpak itself being installed says nothing about the app.
+            const check = candidate[0] === "flatpak"
+                        ? "flatpak info '" + candidate[2] + "' >/dev/null 2>&1"
+                        : "command -v '" + candidate[0] + "' >/dev/null 2>&1";
+            script += "if " + check + "; then try " + args + "; fi; ";
         }
-        return script + "printf 'Kein passendes Programm gefunden\\n'; exit 127";
+        return script + "printf 'Kein passendes Programm gestartet\\n'; exit 127";
     }
 
     function launch(key: string): void {

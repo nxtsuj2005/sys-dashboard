@@ -45,7 +45,8 @@ Card {
                 if (!previous.has(name)) next.unshift({ time, name, desc, kind: "failed", label: "fehlgeschlagen" });
             });
             previous.forEach((desc, name) => {
-                if (!current.has(name)) next.unshift({ time, name, desc, kind: "new", label: "wieder aktiv" });
+                // Gone from the failed list can also mean reset-failed or a removed unit, not "active again".
+                if (!current.has(name)) next.unshift({ time, name, desc, kind: "new", label: "kein Fehler mehr" });
             });
         } else {
             current.forEach((desc, name) => next.push({ time, name, desc, kind: "failed", label: "fehlgeschlagen" }));

@@ -27,4 +27,6 @@ Card {
         interval: 800
         onTriggered: if (Plasmoid.configuration.notes !== area.text) Plasmoid.configuration.notes = area.text
     }
+    // A view switch or plasmashell shutdown inside the debounce must not drop the last keystrokes.
+    Component.onDestruction: if (save.running) save.triggered()
 }
