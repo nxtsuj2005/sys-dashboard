@@ -23,6 +23,10 @@
       <label>Frames per second for graph scrolling and bar gliding; 0 = snap (lightest). Shared by all screens</label>
       <default>20</default>
     </entry>
+    <entry name="glideFpsBattery" type="Int">
+      <label>glideFps while running on battery; -1 = same as glideFps</label>
+      <default>0</default>
+    </entry>
     <entry name="reducedMotion" type="Bool">
       <label>No boot sequence, idle glitches or crash</label>
       <default>false</default>
